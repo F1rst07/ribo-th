@@ -85,6 +85,39 @@ h1 {
   margin: 0 0 22px;
   font-weight: 750;
   line-height: 1.35;
+  min-height: 1.35em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cursor {
+  display: inline-block;
+  width: 3px;
+  height: 0.82em;
+  background-color: #ffcc00;
+  margin-left: 4px;
+  vertical-align: middle;
+  border-radius: 1px;
+  animation: blink 1s step-start infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .badge-group {
@@ -220,5 +253,8 @@ footer .credit {
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after {
     animation: none !important;
+  }
+  .cursor {
+    display: none !important;
   }
 }

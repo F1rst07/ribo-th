@@ -1,6 +1,6 @@
 {
   "name": "ribo-th",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "โครงงานเว็บไซต์สำหรับเรือหุ่นยนต์อัตโนมัติเก็บขยะและคราบน้ำมันบนผิวน้ำ โดยใช้ Arduino UNO Q กับกล้อง Logitech C270",
   "private": true,
   "scripts": {
