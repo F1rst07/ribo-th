@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import packageJson from "../../package.json";
 
 const FULL_TEXT = "กำลังพัฒนาอยู่...";
 
@@ -18,7 +17,6 @@ const getGraphemes = (text: string): string[] => {
 const GRAPHEMES = getGraphemes(FULL_TEXT);
 
 export default function HomePage() {
-  const version = `v${packageJson.version}`;
   const [index, setIndex] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -76,15 +74,7 @@ export default function HomePage() {
             <span className="cursor" aria-hidden="true" />
             <span className="sr-only">{FULL_TEXT}</span>
           </h1>
-          <div className="badge-group">
-            <span className="tag">UNDER CONSTRUCTION</span>
-            <span
-              className="version-badge"
-              title={`เวอร์ชันของระบบ: ${version}`}
-            >
-              {version}
-            </span>
-          </div>
+          <span className="tag">UNDER CONSTRUCTION</span>
           <p className="description">
             ขณะนี้เว็บไซต์อยู่ระหว่างการพัฒนาและปรับปรุงระบบ
           </p>
