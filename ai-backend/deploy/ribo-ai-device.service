@@ -1,0 +1,19 @@
+[Unit]
+Description=RIBO-TH on-board camera and ONNX inference
+After=network.target usb-host-mode.service
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/ribo-stack/current
+Environment=RIBO_ORT_THREADS=4
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+ExecStart=/usr/bin/python3 -u ai-backend/device_server.py
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
+Alias=ribo-vision.service

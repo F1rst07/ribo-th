@@ -33,3 +33,26 @@ yarn-error.log*
 next-env.d.ts
 
 .env*
+
+# local Python AI environment and generated detection results
+/ai-backend/.venv/
+/ai-backend/.ultralytics/
+/ai-backend/results/
+/ai-backend/nafta_test_results/
+**/__pycache__/
+*.py[cod]
+/.next-device/
+
+# local training data, checkpoints, exports, and experiment output
+/archive/
+/datasets/
+/milk/
+/models/
+/runs/
+/scratch/
+/weights/
+/RIBO-TH-Dashboard-Handoff/
+*.pt
+*.pt.*
+*.onnx
+*.zip

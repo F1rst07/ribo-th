@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "ai": "bash ./ai-backend/start_dashboard_ai.sh",
     "build": "next build",
     "start": "next start"
   },

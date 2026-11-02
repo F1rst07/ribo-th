@@ -1,0 +1,20 @@
+[Unit]
+Description=RIBO-TH standalone dashboard
+After=network.target ribo-ai-device.service
+Wants=ribo-ai-device.service
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/ribo-stack/current/web
+Environment=NODE_ENV=production
+Environment=RIBO_DEVICE_MODE=true
+Environment=HOSTNAME=0.0.0.0
+Environment=PORT=3000
+ExecStart=/home/arduino/ribo-runtime/node-v24.22.2-linux-arm64/bin/node server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
