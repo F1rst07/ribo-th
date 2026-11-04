@@ -786,8 +786,8 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       appendLog(
         "WARN",
         lang === "th"
-          ? "กรุณากดเชื่อมต่อ Arduino UNO Q ก่อนควบคุมกลไกเก็บน้ำมัน"
-          : "Please connect Arduino UNO Q before controlling oil roller"
+          ? "กรุณากดเชื่อมต่อ Arduino UNO Q ก่อนควบคุมระบบฉีดพ่นกำจัดน้ำมัน"
+          : "Please connect Arduino UNO Q before controlling oil spray system"
       );
       return;
     }
@@ -798,11 +798,11 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       "CMD",
       running
         ? lang === "th"
-          ? "เริ่มหมุนกลไกเก็บคราบน้ำมัน"
-          : "Command Oil : START rotation"
+          ? "เปิดระบบฉีดพ่นกำจัดน้ำมัน"
+          : "Command Spray : START"
         : lang === "th"
-        ? "หยุดหมุนกลไกเก็บคราบน้ำมัน"
-        : "Command Oil : STOP rotation"
+        ? "ปิดระบบฉีดพ่นกำจัดน้ำมัน"
+        : "Command Spray : STOP"
     );
   };
 
@@ -886,14 +886,6 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 onToggleOilModel={handleToggleOilModel}
               />
             </div>
-            <div className={styles.areaLog}>
-              <ActivityLog
-                t={t}
-                logs={logs}
-                onClearLogs={handleClearLogs}
-                lang={lang}
-              />
-            </div>
           </div>
 
           {/* คอลัมน์ขวา (บน Desktop) */}
@@ -939,6 +931,15 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 onSetOil={handleSetOil}
                 onSetArm={handleSetArm}
                 t={t}
+              />
+            </div>
+
+            <div className={styles.areaLog}>
+              <ActivityLog
+                t={t}
+                logs={logs}
+                onClearLogs={handleClearLogs}
+                lang={lang}
               />
             </div>
           </div>

@@ -44,7 +44,7 @@ export const DetectionDetails: React.FC<DetectionDetailsProps> = ({
     <section
       className={styles.card}
       aria-labelledby="detection-details-heading"
-      style={{ padding: "12px 16px" }}
+      style={{ padding: "12px 14px" }}
     >
       <div className={styles.row}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>

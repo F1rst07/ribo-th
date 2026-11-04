@@ -251,11 +251,7 @@ export const MovementControl: React.FC<MovementControlProps> = ({
             <span>{autoStatusText || t.autoNavSearching}</span>
           </div>
         </div>
-      ) : (
-        <p className={styles.muted} style={{ margin: "6px 0 0", textAlign: "center", fontSize: "11px" }}>
-          {t.padNote}
-        </p>
-      )}
+      ) : null}
     </div>
   );
 };

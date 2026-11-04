@@ -328,7 +328,6 @@ export const ActivityLog: React.FC<ActivityLogProps> = ({
         className={styles.log}
         role="log"
         aria-live="polite"
-        style={{ maxHeight: "160px", overflowY: "auto" }}
       >
         {logs.length === 0 ? (
           <div

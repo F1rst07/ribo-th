@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { Droplet, Play, Square, ArrowUp, ArrowDown } from "lucide-react";
+import React from "react";
+import { Droplet, Power } from "lucide-react";
 import { Translations } from "./translations";
 import { OperationModeType } from "./OperationMode";
 import styles from "./dashboard.module.css";
@@ -10,9 +10,9 @@ interface OilControlProps {
   mode: OperationModeType;
   isLocked: boolean;
   isOilRunning: boolean;
-  armPosition: "up" | "down" | "idle";
+  armPosition?: "up" | "down" | "idle";
   onSetOil: (running: boolean) => void;
-  onSetArm: (position: "up" | "down" | "idle") => void;
+  onSetArm?: (position: "up" | "down" | "idle") => void;
   t: Translations;
 }
 
@@ -20,65 +20,13 @@ export const OilControl: React.FC<OilControlProps> = ({
   mode,
   isLocked,
   isOilRunning,
-  armPosition,
   onSetOil,
-  onSetArm,
   t,
 }) => {
-  const isArmPressedRef = React.useRef(false);
-
-  // ระบบเดิมสำหรับ "การหมุนกลไกเก็บน้ำมัน": กด "หมุน" ทำงานต่อเนื่อง, กด "หยุด" เพื่อหยุด
-  const handleStartOil = () => {
-    if (isLocked) return;
-    onSetOil(true);
+  const handleToggleOil = () => {
+    if (isLocked || mode === "auto") return;
+    onSetOil(!isOilRunning);
   };
-
-  const handleStopOil = () => {
-    if (isLocked) return;
-    onSetOil(false);
-  };
-
-  // Push Button (กดค้าง-ปล่อยหยุด) สำหรับแขนกล ขึ้น / ลง
-  const handleArmStart = (dir: "up" | "down", e: React.PointerEvent) => {
-    if (isLocked) return;
-    try {
-      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    } catch {}
-    isArmPressedRef.current = true;
-    onSetArm(dir);
-  };
-
-  const handleArmEnd = (e?: React.PointerEvent) => {
-    if (e) {
-      try {
-        (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
-      } catch {}
-    }
-    if (isArmPressedRef.current) {
-      isArmPressedRef.current = false;
-      onSetArm("idle");
-    }
-  };
-
-  // ป้องกันแขนกลค้างเมื่อปล่อยเมาส์/นิ้วนิมิตนอกจอ หรือสลับหน้าต่าง (สำหรับแขนกล Push Button)
-  useEffect(() => {
-    const handleGlobalRelease = () => {
-      if (isArmPressedRef.current) {
-        isArmPressedRef.current = false;
-        onSetArm("idle");
-      }
-    };
-
-    window.addEventListener("pointerup", handleGlobalRelease);
-    window.addEventListener("pointercancel", handleGlobalRelease);
-    window.addEventListener("blur", handleGlobalRelease);
-
-    return () => {
-      window.removeEventListener("pointerup", handleGlobalRelease);
-      window.removeEventListener("pointercancel", handleGlobalRelease);
-      window.removeEventListener("blur", handleGlobalRelease);
-    };
-  }, [onSetArm]);
 
   return (
     <section className={styles.card} aria-labelledby="oil-heading">
@@ -89,111 +37,54 @@ export const OilControl: React.FC<OilControlProps> = ({
             {t.oilSys}
           </h2>
         </div>
+        <span
+          className={styles.pill}
+          id="oilStatus"
+          style={{
+            backgroundColor: isOilRunning ? "#ffcc00" : "#333e48",
+            color: isOilRunning ? "#151515" : "#94a3b8",
+            borderColor: isOilRunning ? "#ffcc00" : "#455360",
+            fontWeight: 750,
+            transition: "all 0.2s ease",
+          }}
+        >
+          {isOilRunning ? "ON" : "OFF"}
+        </span>
       </div>
 
-      {/* ควบคุมตำแหน่งแขนเก็บน้ำมัน (ขึ้น / ลง) */}
-      <div className={styles.inset}>
-        <div className={styles.row}>
-          <b>{t.arm}</b>
-          <span
-            className={styles.pill}
-            id="armStatus"
-            style={{
-              backgroundColor:
-                armPosition === "up" || armPosition === "down"
-                  ? "#dcae00"
-                  : undefined,
-              color:
-                armPosition === "up" || armPosition === "down"
-                  ? "#161616"
-                  : undefined,
-            }}
-          >
-            {armPosition === "up"
-              ? t.up
-              : armPosition === "down"
-              ? t.down
-              : t.idle}
-          </span>
-        </div>
-        <div className={styles.grid2} style={{ marginTop: "12px" }}>
-          <button
-            type="button"
-            id="armUp"
-            className={`${styles.btn} ${
-              armPosition === "up" ? styles.btnPrimary : ""
-            }`}
-            disabled={isLocked}
-            onPointerDown={(e) => handleArmStart("up", e)}
-            onPointerUp={handleArmEnd}
-            onPointerLeave={handleArmEnd}
-            onPointerCancel={handleArmEnd}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{ touchAction: "none" }}
-          >
-            <ArrowUp size={15} />
-            <span>{t.raise}</span>
-          </button>
-          <button
-            type="button"
-            id="armDown"
-            className={`${styles.btn} ${
-              armPosition === "down" ? styles.btnPrimary : ""
-            }`}
-            disabled={isLocked}
-            onPointerDown={(e) => handleArmStart("down", e)}
-            onPointerUp={handleArmEnd}
-            onPointerLeave={handleArmEnd}
-            onPointerCancel={handleArmEnd}
-            onContextMenu={(e) => e.preventDefault()}
-            style={{ touchAction: "none" }}
-          >
-            <ArrowDown size={15} />
-            <span>{t.lower}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ควบคุมการหมุนกลไกเก็บน้ำมัน */}
-      <div className={styles.inset} style={{ marginTop: "10px" }}>
-        <div className={styles.row}>
-          <b>{t.rotation}</b>
-          <span
-            className={styles.pill}
-            id="oilStatus"
-            style={
-              isOilRunning
-                ? { backgroundColor: "#2b8158", color: "#ffffff" }
-                : undefined
-            }
-          >
-            {isOilRunning ? "ON" : "OFF"}
-          </span>
-        </div>
-        {/* ปุ่มหมุน / หยุดหมุน */}
-        <div className={styles.grid2} style={{ marginTop: "10px" }}>
-          <button
-            type="button"
-            id="oilStart"
-            className={`${styles.btn} ${styles.btnStart}`}
-            disabled={isLocked || isOilRunning || mode === "auto"}
-            onClick={handleStartOil}
-          >
-            <Play size={15} />
-            <span>{t.start}</span>
-          </button>
-          <button
-            type="button"
-            id="oilStop"
-            className={`${styles.btn} ${styles.btnStop}`}
-            disabled={isLocked || !isOilRunning || mode === "auto"}
-            onClick={handleStopOil}
-          >
-            <Square size={15} />
-            <span>{t.stop}</span>
-          </button>
-        </div>
-      </div>
+      {/* ปุ่มเดียวกดสลับ เปิด (สีเหลืองตามธีม) / ปิด (สีเทาตามธีม) — ไม่ใส่การ์ดหุ้มซ้ำซ้อน */}
+      <button
+        type="button"
+        id="oilToggleBtn"
+        className={styles.btn}
+        disabled={isLocked || mode === "auto"}
+        onClick={handleToggleOil}
+        style={{
+          width: "100%",
+          marginTop: "10px",
+          minHeight: "42px",
+          fontSize: "14px",
+          fontWeight: 750,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "8px",
+          borderRadius: "8px",
+          backgroundColor: isOilRunning ? "#ffcc00" : "#333e48",
+          color: isOilRunning ? "#151515" : "#cbd5e1",
+          border: isOilRunning
+            ? "1px solid #ffe066"
+            : "1px solid #465563",
+          boxShadow: isOilRunning
+            ? "0 0 14px rgba(255, 204, 0, 0.35)"
+            : "none",
+          cursor: isLocked || mode === "auto" ? "not-allowed" : "pointer",
+          transition: "all 0.2s ease",
+        }}
+      >
+        <Power size={17} strokeWidth={isOilRunning ? 2.5 : 2} />
+        <span>{isOilRunning ? "เปิด" : "ปิด"}</span>
+      </button>
     </section>
   );
 };

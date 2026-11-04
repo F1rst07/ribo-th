@@ -898,7 +898,10 @@
   gap: 5px;
   font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   overflow-x: auto;
+  overflow-y: auto;
   word-break: break-word;
+  height: 175px;
+  max-height: 175px;
 }
 
 .logLine1 {
