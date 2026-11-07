@@ -83,8 +83,10 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
             setUnoQIp(status.wlanIp!);
             return status.wlanIp!;
           });
-        } else if (status.boardReachable === false) {
-          setBoardIp("");
+        } else if (status.boardReachable === false && typeof window !== "undefined") {
+          const cloud = !["localhost", "127.0.0.1"].includes(window.location.hostname) &&
+            !/^\d+\.\d+\.\d+\.\d+$/.test(window.location.hostname);
+          if (!cloud) setBoardIp("");
         }
       } finally {
         inflight = false;

@@ -22,11 +22,23 @@ export function unoqApiUrl(requested: string, route: string, backendPath: string
 export function isSameRequestOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return true;
+  if (isTrustedDashboardOrigin(origin)) return true;
   try {
     const actual = new URL(origin);
     const internal = new URL(request.url);
     const host = request.headers.get("host") || internal.host;
     return actual.protocol === internal.protocol && actual.host.toLowerCase() === host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+export function isTrustedDashboardOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.hostname === "ribo-th.vercel.app" || u.hostname.endsWith(".vercel.app")) return true;
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) return true;
+    return false;
   } catch {
     return false;
   }

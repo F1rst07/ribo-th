@@ -3,6 +3,7 @@
 import React from "react";
 import { Cpu, Camera, Zap, Unplug, Loader2, Wifi } from "lucide-react";
 import { Language, Translations } from "./translations";
+import { isCloudDashboard, mobileBoardUrl } from "@/lib/clientBoardApi";
 import styles from "./dashboard.module.css";
 
 interface ConnectionStatusProps {
@@ -180,6 +181,17 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
           </label>
 
           <p className={styles.setupMicro}>{t.wifiOpenNetwork}</p>
+          {isCloudDashboard() ? (
+            <p className={styles.setupInfo}>
+              {t.mobileLanHint}{" "}
+              <a
+                href={mobileBoardUrl(boardIp)}
+                style={{ color: "#ffcc00", wordBreak: "break-all" }}
+              >
+                {mobileBoardUrl(boardIp)}
+              </a>
+            </p>
+          ) : null}
 
           {statusBanner ? (
             <p

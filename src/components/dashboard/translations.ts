@@ -95,6 +95,7 @@ export interface Translations {
   boardNoResponse: string;
   boardNotFoundWifi: string;
   wifiSetupOk: string;
+  mobileLanHint: string;
 }
 
 export const strings: Record<Language, Translations> = {
@@ -195,6 +196,8 @@ export const strings: Record<Language, Translations> = {
     boardNoResponse: "บอร์ดไม่ตอบที่ {ip} : กดเชื่อมต่อใหม่",
     boardNotFoundWifi: "ไม่พบบอร์ดบน Wi-Fi นี้ : กดเชื่อมต่อใหม่",
     wifiSetupOk: "ตั้ง Wi-Fi บนบอร์ดแล้ว — ให้ Mac อยู่ Wi-Fi เดียวกัน แล้วกดเชื่อมต่อ",
+    mobileLanHint:
+      "มือถือต้องอยู่ Wi-Fi เดียวกับบอร์ด — ใส่ IP บอร์ดแล้วกดเชื่อมต่อ หรือเปิดเว็บบนบอร์ดโดยตรง",
   },
   en: {
     subtitle: "Autonomous Robot Control System",
@@ -293,5 +296,7 @@ export const strings: Record<Language, Translations> = {
     boardNoResponse: "Board not responding at {ip} — press Connect again",
     boardNotFoundWifi: "No board on this Wi-Fi — press Connect again",
     wifiSetupOk: "Board Wi-Fi updated — join the same Wi-Fi on your Mac, then Connect",
+    mobileLanHint:
+      "Phone must use the same Wi-Fi as the board — enter the board IP and connect, or open the board URL directly",
   },
 };

@@ -11,6 +11,7 @@ import {
   VisionStatus,
 } from "./trashVision";
 import styles from "./dashboard.module.css";
+import { boardArduinoApi, boardVisionApi } from "@/lib/clientBoardApi";
 import { getUnoQIp } from "./hardwareService";
 
 /** Gap after each AI result. The live picture is a separate MJPEG and is never copied onto a canvas. */
@@ -95,10 +96,11 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
       let nextDelay = WIFI_VISION_MS;
       try {
         const ip = getUnoQIp();
-        const snapResp = await fetch(
-          `/api/arduino/snapshot?ip=${encodeURIComponent(ip)}`,
-          { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]) }
-        );
+        const snapResp = await fetch(boardArduinoApi(ip, "snapshot", { ip }), {
+          cache: "no-store",
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
+          mode: "cors",
+        });
         if (!snapResp.ok) throw new Error(`snapshot ${snapResp.status}`);
         const blob = await snapResp.blob();
         const bitmap = await createImageBitmap(blob);
@@ -106,12 +108,13 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
         const frameH = bitmap.height;
         bitmap.close();
         const image = await blobToBase64(blob);
-        const response = await fetch("/api/vision", {
+        const response = await fetch(boardVisionApi(ip), {
           method: "POST",
           headers: {
+            "Content-Type": "text/plain",
             "X-Enable-Trash": enableTrashModel ? "1" : "0",
             "X-Enable-Oil": enableOilModel ? "1" : "0",
-            "X-UNOQ-IP": ip,
+            ...(boardVisionApi(ip).startsWith("/") ? { "X-UNOQ-IP": ip } : {}),
           },
           body: image,
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),

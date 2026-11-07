@@ -3,6 +3,14 @@
  * Manages Wi-Fi REST/HTTP & Web Serial connection to Arduino UNO Q and Camera streaming for Logitech C270
  */
 
+import {
+  boardArduinoApi,
+  boardVisionApi,
+  discoverBoardFromBrowser,
+  isCloudDashboard,
+  probeBoardFromBrowser,
+} from "@/lib/clientBoardApi";
+
 const STALE_BOARD_IPS = new Set(["172.20.10.3", "127.0.0.1", "localhost"]);
 
 export function isStaleUnoQIp(ip: string): boolean {
@@ -63,6 +71,9 @@ export async function discoverUnoQOnLan(): Promise<{
   source?: string;
   error?: string;
 }> {
+  if (typeof window !== "undefined" && isCloudDashboard()) {
+    return discoverBoardFromBrowser();
+  }
   try {
     const resp = await fetch("/api/arduino/discover", {
       cache: "no-store",
@@ -145,10 +156,11 @@ export async function connectArduinoUnoQ(
     let data: { connected?: boolean } = {};
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
-      const resp = await fetch(
-        `/api/arduino/status?ip=${encodeURIComponent(targetIp)}`,
-        { cache: "no-store", signal: AbortSignal.timeout(2800) }
-      );
+      const resp = await fetch(boardArduinoApi(targetIp, "status", { ip: targetIp }), {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2800),
+        mode: "cors",
+      });
       data = await resp.json().catch(() => ({}));
       if (data.connected) break;
     }
@@ -163,10 +175,11 @@ export async function connectArduinoUnoQ(
       wifiPollTimer = setInterval(async () => {
         if (!isWifiConnected) return;
         try {
-          const pollRes = await fetch(
-            `/api/arduino/status?ip=${encodeURIComponent(activeIp)}`,
-            { cache: "no-store", signal: AbortSignal.timeout(1500) }
-          );
+          const pollRes = await fetch(boardArduinoApi(activeIp, "status", { ip: activeIp }), {
+            cache: "no-store",
+            signal: AbortSignal.timeout(1500),
+            mode: "cors",
+          });
           const pollData = await pollRes.json();
           if (pollData.connected) {
             missedPolls = 0;
@@ -415,16 +428,20 @@ export async function checkUnoQCameraStatus(targetIp?: string): Promise<{
 }> {
   const ip = targetIp || getUnoQIp();
   try {
-    const resp = await fetch(`/api/arduino/camera?ip=${encodeURIComponent(ip)}`, {
+    const resp = await fetch(boardArduinoApi(ip, "camera", { ip }), {
       cache: "no-store",
       signal: AbortSignal.timeout(1500),
+      mode: "cors",
     });
     if (resp.ok) {
       const data = await resp.json();
+      const streamUrl =
+        data.streamUrl ||
+        boardArduinoApi(ip, "stream", { ip });
       return {
         active: Boolean(data.active),
         deviceName: data.deviceName || "Logitech C270",
-        streamUrl: data.streamUrl || `/api/arduino/stream?ip=${encodeURIComponent(ip)}`,
+        streamUrl,
         fps: data.fps || 0,
         error: data.error,
       };
