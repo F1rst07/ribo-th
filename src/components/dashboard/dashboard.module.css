@@ -232,6 +232,104 @@
   min-width: 0;
 }
 
+.statusCardWide {
+  grid-column: 1 / -1;
+}
+
+.boardSetup {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #333f4a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setupLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #b8c4cc;
+}
+
+.setupInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #4a5864;
+  border-radius: 5px;
+  background: #171c21;
+  color: #f8fafc;
+  font-size: 11.5px;
+  padding: 5px 8px;
+  font-family: inherit;
+}
+
+.setupInput:focus {
+  outline: 2px solid rgba(255, 204, 0, 0.45);
+  border-color: #ffcc00;
+}
+
+.setupInput:disabled {
+  opacity: 0.55;
+}
+
+.setupHint {
+  margin: 0;
+  font-size: 10.5px;
+  color: #94a3b8;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  line-height: 1.35;
+}
+
+.setupMicro {
+  margin: 0;
+  font-size: 10px;
+  color: #7c8a96;
+}
+
+.setupError {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #fecaca;
+  background: rgba(185, 28, 28, 0.2);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+}
+
+.setupInfo {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: #bfdbfe;
+  background: rgba(29, 78, 216, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+}
+
+.btnWifiSetup {
+  background: #2d3a46 !important;
+  border: 1px solid #4a5864 !important;
+  color: #f1f5f9 !important;
+  font-weight: 650 !important;
+  padding: 5px 8px !important;
+  min-height: 26px !important;
+  font-size: 11px !important;
+  border-radius: 5px !important;
+  margin-top: 2px;
+}
+
+.btnWifiSetup:hover:not(:disabled) {
+  border-color: #ffcc00 !important;
+  color: #ffcc00 !important;
+}
+
 .statusHeader {
   display: flex;
   align-items: center;
@@ -273,6 +371,16 @@
   box-shadow: 0 0 7px rgba(34, 197, 94, 0.75);
   flex-shrink: 0;
   animation: pulse-green 2s infinite ease-in-out;
+}
+
+.warnDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #fbbf24;
+  box-shadow: 0 0 7px rgba(251, 191, 36, 0.75);
+  flex-shrink: 0;
 }
 
 @keyframes pulse-green {

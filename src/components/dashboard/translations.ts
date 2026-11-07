@@ -84,6 +84,17 @@ export interface Translations {
   autoNavStabilizing: string;
   autoNavActive: string;
   collectedCountLabel: string;
+  boardIpLabel: string;
+  wifiSsidLabel: string;
+  wifiPasswordLabel: string;
+  wifiPasswordOptional: string;
+  wifiSetup: string;
+  wifiSetupBusy: string;
+  wifiUsbHint: string;
+  wifiOpenNetwork: string;
+  boardNoResponse: string;
+  boardNotFoundWifi: string;
+  wifiSetupOk: string;
 }
 
 export const strings: Record<Language, Translations> = {
@@ -173,6 +184,17 @@ export const strings: Record<Language, Translations> = {
     autoNavStabilizing: "หยุดนิ่งเพื่อปรับมุมมองและล็อกขยะชิ้นใหม่...",
     autoNavActive: "ระบบนำทางอัตโนมัติ : ทำงาน",
     collectedCountLabel: "เก็บสำเร็จ : ",
+    boardIpLabel: "IP บอร์ด (Wi-Fi)",
+    wifiSsidLabel: "ชื่อ Wi-Fi",
+    wifiPasswordLabel: "รหัส Wi-Fi",
+    wifiPasswordOptional: "เว้นว่างถ้าเครือข่ายเปิด",
+    wifiSetup: "ตั้ง Wi-Fi บนบอร์ด",
+    wifiSetupBusy: "กำลังตั้ง Wi-Fi...",
+    wifiUsbHint: "ไม่ต้องต่อสาย USB — ใช้ Wi-Fi กับบอร์ดได้",
+    wifiOpenNetwork: "เครือข่ายเปิด : ไม่ต้องใส่รหัส Wi-Fi",
+    boardNoResponse: "บอร์ดไม่ตอบที่ {ip} : กดเชื่อมต่อใหม่",
+    boardNotFoundWifi: "ไม่พบบอร์ดบน Wi-Fi นี้ : กดเชื่อมต่อใหม่",
+    wifiSetupOk: "ตั้ง Wi-Fi บนบอร์ดแล้ว — ให้ Mac อยู่ Wi-Fi เดียวกัน แล้วกดเชื่อมต่อ",
   },
   en: {
     subtitle: "Autonomous Robot Control System",
@@ -260,5 +282,16 @@ export const strings: Record<Language, Translations> = {
     autoNavStabilizing: "Stabilizing camera to lock next target...",
     autoNavActive: "Autonomous Nav : Active",
     collectedCountLabel: "Collected : ",
+    boardIpLabel: "Board IP (Wi-Fi)",
+    wifiSsidLabel: "Wi-Fi name",
+    wifiPasswordLabel: "Wi-Fi password",
+    wifiPasswordOptional: "Leave empty for open networks",
+    wifiSetup: "Set board Wi-Fi",
+    wifiSetupBusy: "Configuring Wi-Fi...",
+    wifiUsbHint: "No USB cable — use Wi-Fi to reach the board",
+    wifiOpenNetwork: "Open network: no Wi-Fi password",
+    boardNoResponse: "Board not responding at {ip} — press Connect again",
+    boardNotFoundWifi: "No board on this Wi-Fi — press Connect again",
+    wifiSetupOk: "Board Wi-Fi updated — join the same Wi-Fi on your Mac, then Connect",
   },
 };

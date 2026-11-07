@@ -1,30 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { unoqApiUrl } from "@/lib/unoqEndpoint";
+import { isUnoQHealthPayload, unoqHost } from "@/lib/unoqBoardProbe";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const requestedIp = (searchParams.get("ip") || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3").trim();
+  const requestedIp = (
+    searchParams.get("ip") ||
+    process.env.NEXT_PUBLIC_UNOQ_IP ||
+    ""
+  ).trim();
 
-  const targetUrls = [
-    unoqApiUrl(requestedIp, "status", "/api/health"),
-  ];
+  if (!requestedIp) {
+    return NextResponse.json(
+      {
+        connected: false,
+        ip: "",
+        error: "Board IP is required",
+      },
+      { status: 200 }
+    );
+  }
+
+  const host = unoqHost(requestedIp);
+  const onDevice = process.env.RIBO_DEVICE_MODE === "true";
+  const targetUrls = onDevice
+    ? [`http://${host}:8000/api/health`]
+    : [
+        `http://${host}:3000/api/arduino/status?ip=${encodeURIComponent(requestedIp)}`,
+        unoqApiUrl(requestedIp, "status", "/api/health"),
+        `http://${host}:8000/api/health`,
+      ];
 
   for (const url of targetUrls) {
     try {
       const resp = await fetch(url, {
         method: "GET",
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(2200),
         cache: "no-store",
       });
 
       if (resp.ok) {
         const data = await resp.json();
-        if (data.status !== "ok" || !data.platform?.includes("Arduino UNO Q")) continue;
+        if (!isUnoQHealthPayload(data)) continue;
+        const board = { ...data } as Record<string, unknown>;
+        delete board.ip;
         return NextResponse.json({
           connected: true,
           targetUrl: url,
+          ...board,
           ip: requestedIp,
-          ...data,
         });
       }
     } catch {
@@ -36,7 +60,7 @@ export async function GET(request: NextRequest) {
     {
       connected: false,
       ip: requestedIp,
-      error: `Cannot reach Arduino UNO Q at ${requestedIp}:8000`,
+      error: `UNO Q is not answering at ${requestedIp}`,
     },
     { status: 200 }
   );

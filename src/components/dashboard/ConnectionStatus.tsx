@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Cpu, Camera, Zap, Unplug, Loader2 } from "lucide-react";
+import { Cpu, Camera, Zap, Unplug, Loader2, Wifi } from "lucide-react";
 import { Language, Translations } from "./translations";
 import styles from "./dashboard.module.css";
 
@@ -14,6 +14,18 @@ interface ConnectionStatusProps {
   isConnecting: boolean;
   onToggleConnect: () => void;
   lang: Language;
+  boardIp: string;
+  onBoardIpChange: (ip: string) => void;
+  wifiSsid: string;
+  onWifiSsidChange: (ssid: string) => void;
+  wifiPassword: string;
+  onWifiPasswordChange: (password: string) => void;
+  onSetupWifi: () => void;
+  isWifiSettingUp: boolean;
+  adbUsbReady: boolean;
+  networkHost?: string;
+  statusBanner?: string;
+  statusBannerTone?: "error" | "info";
 }
 
 export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
@@ -25,11 +37,22 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   isConnecting,
   onToggleConnect,
   lang,
+  boardIp,
+  onBoardIpChange,
+  wifiSsid,
+  onWifiSsidChange,
+  wifiPassword,
+  onWifiPasswordChange,
+  onSetupWifi,
+  isWifiSettingUp,
+  adbUsbReady,
+  networkHost,
+  statusBanner,
+  statusBannerTone = "info",
 }) => {
   return (
     <section className={styles.statusGrid} aria-label="Connection Status">
-      {/* การ์ด Arduino UNO Q */}
-      <div className={styles.statusCard}>
+      <div className={`${styles.statusCard} ${styles.statusCardWide}`}>
         <div
           style={{
             display: "flex",
@@ -49,7 +72,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
               isConnected ? styles.btnConnected : styles.btnConnect
             }`}
             onClick={onToggleConnect}
-            disabled={isConnecting}
+            disabled={isConnecting || isWifiSettingUp}
             title={isConnected ? t.disconnect : t.connect}
           >
             {isConnecting ? (
@@ -73,20 +96,127 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
         <div className={styles.offline}>
           <span
-            className={isConnected ? styles.onlineDot : styles.offlineDot}
+            className={
+              isConnected
+                ? cameraConnected
+                  ? styles.onlineDot
+                  : styles.warnDot
+                : styles.offlineDot
+            }
             aria-hidden="true"
           />
           <span
             style={
-              isConnected ? { color: "#4ade80", fontWeight: 600 } : undefined
+              isConnected
+                ? {
+                    color: cameraConnected ? "#4ade80" : "#fbbf24",
+                    fontWeight: 600,
+                  }
+                : undefined
             }
           >
-            {isConnected ? t.connected : t.offline}
+            {isConnected
+              ? cameraConnected
+                ? t.connected
+                : lang === "th"
+                  ? "บอร์ดเชื่อมต่อแล้ว (กล้องยังไม่ส่งภาพ)"
+                  : "Board connected (camera not streaming)"
+              : t.offline}
           </span>
+        </div>
+
+        <div className={styles.boardSetup}>
+          <label className={styles.setupLabel}>
+            <span>{t.boardIpLabel}</span>
+            <input
+              className={styles.setupInput}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              spellCheck={false}
+              value={boardIp}
+              onChange={(e) => onBoardIpChange(e.target.value)}
+              disabled={isConnected || isConnecting}
+              placeholder={lang === "th" ? "กำลังค้นหาบอร์ด..." : "Looking for the board..."}
+            />
+          </label>
+
+          {adbUsbReady || !networkHost ? (
+            <p className={styles.setupHint}>
+              <Wifi size={12} aria-hidden />
+              {adbUsbReady
+                ? lang === "th"
+                  ? "ตรวจพบบอร์ดผ่าน USB — ตั้ง Wi-Fi ได้จากด้านล่าง"
+                  : "Board detected over USB — configure Wi-Fi below"
+                : lang === "th"
+                  ? "กำลังหา KPhiraphat.local บน Wi-Fi นี้ — ไม่ใช้ IP เก่าอีกแล้ว"
+                  : "Looking for KPhiraphat.local on this Wi-Fi"}
+            </p>
+          ) : null}
+
+          <label className={styles.setupLabel}>
+            <span>{t.wifiSsidLabel}</span>
+            <input
+              className={styles.setupInput}
+              type="text"
+              autoComplete="off"
+              value={wifiSsid}
+              onChange={(e) => onWifiSsidChange(e.target.value)}
+              disabled={isWifiSettingUp}
+            />
+          </label>
+
+          <label className={styles.setupLabel}>
+            <span>{t.wifiPasswordLabel}</span>
+            <input
+              className={styles.setupInput}
+              type="password"
+              autoComplete="off"
+              value={wifiPassword}
+              onChange={(e) => onWifiPasswordChange(e.target.value)}
+              disabled={isWifiSettingUp}
+              placeholder={t.wifiPasswordOptional}
+            />
+          </label>
+
+          <p className={styles.setupMicro}>{t.wifiOpenNetwork}</p>
+
+          {statusBanner ? (
+            <p
+              className={
+                statusBannerTone === "error"
+                  ? styles.setupError
+                  : styles.setupInfo
+              }
+              role="status"
+            >
+              {statusBanner}
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.btnWifiSetup}`}
+            onClick={onSetupWifi}
+            disabled={
+              isWifiSettingUp || isConnecting || !wifiSsid.trim() || !boardIp.trim()
+            }
+          >
+            {isWifiSettingUp ? (
+              <>
+                <Loader2 size={12} className={styles.spin} />
+                <span>{t.wifiSetupBusy}</span>
+              </>
+            ) : (
+              <>
+                <Wifi size={12} />
+                <span>{t.wifiSetup}</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* สถานะกล้องจาก MediaStream ที่เปิดอยู่จริง */}
       <div className={styles.statusCard}>
         <div className={styles.statusHeader}>
           <Camera size={16} color="#ffcc00" />

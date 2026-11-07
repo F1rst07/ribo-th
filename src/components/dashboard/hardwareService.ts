@@ -3,7 +3,13 @@
  * Manages Wi-Fi REST/HTTP & Web Serial connection to Arduino UNO Q and Camera streaming for Logitech C270
  */
 
-let activeIp = "172.20.10.3";
+const STALE_BOARD_IPS = new Set(["172.20.10.3", "127.0.0.1", "localhost"]);
+
+export function isStaleUnoQIp(ip: string): boolean {
+  return STALE_BOARD_IPS.has(ip.trim());
+}
+
+let activeIp = "";
 let isWifiConnected = false;
 let wifiPollTimer: ReturnType<typeof setInterval> | null = null;
 let activePort: any = null;
@@ -16,15 +22,101 @@ export function getUnoQIp(): string {
     if (window.location.hostname.endsWith(".local") || /^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^10\./.test(window.location.hostname)) {
       return window.location.hostname;
     }
-    return localStorage.getItem("ribo_unoq_ip") || "172.20.10.3";
+    const saved = localStorage.getItem("ribo_unoq_ip") || "";
+    return isStaleUnoQIp(saved) ? "" : saved;
   }
-  return "172.20.10.3";
+  return "";
 }
 
 export function setUnoQIp(ip: string): void {
   activeIp = ip.trim();
   if (typeof window !== "undefined") {
     localStorage.setItem("ribo_unoq_ip", activeIp);
+  }
+}
+
+export function getUnoQWifiSsid(): string {
+  if (typeof window === "undefined") return "Tuangthong Mansion_5G";
+  return localStorage.getItem("ribo_wifi_ssid") || "Tuangthong Mansion_5G";
+}
+
+export function setUnoQWifiSsid(ssid: string): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem("ribo_wifi_ssid", ssid.trim());
+  }
+}
+
+export type UnoQBoardWifiStatus = {
+  ready: boolean;
+  wlanIp?: string;
+  wifiSsid?: string;
+  hostname?: string;
+  boardReachable?: boolean;
+  adbError?: string;
+  devices: { serial: string; state: string }[];
+};
+
+export async function discoverUnoQOnLan(): Promise<{
+  found: boolean;
+  ip?: string;
+  hostname?: string;
+  source?: string;
+  error?: string;
+}> {
+  try {
+    const resp = await fetch("/api/arduino/discover", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(12000),
+    });
+    return await resp.json();
+  } catch {
+    return { found: false, error: "Discovery timed out" };
+  }
+}
+
+export async function fetchUnoQBoardWifiStatus(): Promise<UnoQBoardWifiStatus> {
+  try {
+    const resp = await fetch("/api/arduino/wifi", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(1200),
+    });
+    return (await resp.json()) as UnoQBoardWifiStatus;
+  } catch {
+    return { ready: false, devices: [] };
+  }
+}
+
+export async function setupUnoQBoardWifi(
+  ssid: string,
+  password?: string,
+  boardIp?: string
+): Promise<{ success: boolean; wlanIp?: string; message: string }> {
+  try {
+    const ip = boardIp?.trim() || getUnoQIp();
+    const resp = await fetch("/api/arduino/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ssid,
+        password: password?.trim() ? password.trim() : undefined,
+        boardIp: ip || undefined,
+        applyOnDevice: true,
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (data.success && data.wlanIp) {
+      setUnoQIp(data.wlanIp);
+    }
+    return {
+      success: Boolean(data.success),
+      wlanIp: data.wlanIp,
+      message: data.message || (data.success ? "OK" : "Wi-Fi setup failed"),
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Wi-Fi setup failed",
+    };
   }
 }
 
@@ -50,12 +142,16 @@ export async function connectArduinoUnoQ(
   activeIp = targetIp;
 
   try {
-    // 1. ตรวจสอบสถานะบอร์ดผ่าน Next.js status proxy (รองรับทั้ง Wi-Fi ตรงและ ADB forward)
-    const resp = await fetch(
-      `/api/arduino/status?ip=${encodeURIComponent(targetIp)}`,
-      { cache: "no-store" }
-    );
-    const data = await resp.json().catch(() => ({}));
+    let data: { connected?: boolean } = {};
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+      const resp = await fetch(
+        `/api/arduino/status?ip=${encodeURIComponent(targetIp)}`,
+        { cache: "no-store", signal: AbortSignal.timeout(2800) }
+      );
+      data = await resp.json().catch(() => ({}));
+      if (data.connected) break;
+    }
 
     if (data.connected) {
       isWifiConnected = true;
@@ -63,39 +159,34 @@ export async function connectArduinoUnoQ(
 
       // เริ่มต้นโพลสถานะและตรวจสอบสัญญาณเพื่อแสดงในหน้ากิจกรรม
       if (wifiPollTimer) clearInterval(wifiPollTimer);
+      let missedPolls = 0;
       wifiPollTimer = setInterval(async () => {
         if (!isWifiConnected) return;
         try {
           const pollRes = await fetch(
             `/api/arduino/status?ip=${encodeURIComponent(activeIp)}`,
-            { cache: "no-store" }
+            { cache: "no-store", signal: AbortSignal.timeout(1500) }
           );
           const pollData = await pollRes.json();
-          if (!pollData.connected && isWifiConnected) {
+          if (pollData.connected) {
+            missedPolls = 0;
+            return;
+          }
+          missedPolls += 1;
+          if (missedPolls >= 2 && isWifiConnected) {
+            missedPolls = 0;
             onDataReceived?.(
               "WARN : สัญญาณ Wi-Fi บอร์ดขาดหาย — กำลังพยายามเชื่อมต่อใหม่..."
             );
           }
         } catch {}
-      }, 3500);
+      }, 15000);
 
       onDataReceived?.(
         `INFO : เชื่อมต่อ Arduino UNO Q ผ่านเครือข่าย Wi-Fi สำเร็จ (${targetIp})`
       );
       return { success: true, portName: portLabel };
     }
-
-    // 2. Direct browser fetch fallback
-    try {
-      const direct = await fetch(`http://${targetIp}:8000/api/health`, {
-        mode: "cors",
-        signal: AbortSignal.timeout(1500),
-      });
-      if (direct.ok) {
-        isWifiConnected = true;
-        return { success: true, portName: `Wi-Fi : ${targetIp}` };
-      }
-    } catch {}
 
     return {
       success: false,
@@ -326,7 +417,7 @@ export async function checkUnoQCameraStatus(targetIp?: string): Promise<{
   try {
     const resp = await fetch(`/api/arduino/camera?ip=${encodeURIComponent(ip)}`, {
       cache: "no-store",
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(1500),
     });
     if (resp.ok) {
       const data = await resp.json();

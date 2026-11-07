@@ -13,6 +13,20 @@ import {
 import styles from "./dashboard.module.css";
 import { getUnoQIp } from "./hardwareService";
 
+/** Gap after each AI result. The live picture is a separate MJPEG and is never copied onto a canvas. */
+const WIFI_VISION_MS = 200;
+const USB_VISION_MIN_MS = 280;
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 interface CameraMonitorProps {
   t: Translations;
   isConnected: boolean;
@@ -44,7 +58,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
   const imageRef = useRef<HTMLImageElement>(null);
   const [streamAttempt, setStreamAttempt] = useState(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(retryTimer.current), [isConnected, wifiStreamUrl]);
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
 
   // เชื่อมโยง MediaStream จากกล้องจริงเข้ากับแท็ก <video>
   useEffect(() => {
@@ -65,8 +79,77 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
   }, [stream, isConnected]);
 
   useEffect(() => {
-    if ((!stream && !isWifiStream) || !isConnected) {
+    if (!isConnected || !isWifiStream) {
+      if (!isWifiStream) return;
       onResult([], "idle");
+      return;
+    }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    const controller = new AbortController();
+    onResult([], "loading");
+
+    const wifiScan = async () => {
+      if (stopped) return;
+      let nextDelay = WIFI_VISION_MS;
+      try {
+        const ip = getUnoQIp();
+        const snapResp = await fetch(
+          `/api/arduino/snapshot?ip=${encodeURIComponent(ip)}`,
+          { cache: "no-store", signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]) }
+        );
+        if (!snapResp.ok) throw new Error(`snapshot ${snapResp.status}`);
+        const blob = await snapResp.blob();
+        const bitmap = await createImageBitmap(blob);
+        const frameW = bitmap.width;
+        const frameH = bitmap.height;
+        bitmap.close();
+        const image = await blobToBase64(blob);
+        const response = await fetch("/api/vision", {
+          method: "POST",
+          headers: {
+            "X-Enable-Trash": enableTrashModel ? "1" : "0",
+            "X-Enable-Oil": enableOilModel ? "1" : "0",
+            "X-UNOQ-IP": ip,
+          },
+          body: image,
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+        });
+        if (response.status === 429) {
+          if (!stopped) timer = setTimeout(() => void wifiScan(), WIFI_VISION_MS);
+          return;
+        }
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(typeof result.error === "string" ? result.error : `HTTP ${response.status}`);
+        }
+        const parsed = parseDetections(result.predictions, frameW, frameH);
+        const meta = parseVisionMeta(result.meta);
+        if (!stopped) {
+          failures = 0;
+          onResult(parsed, "ready", "", meta);
+        }
+      } catch (error) {
+        if (!stopped) {
+          failures += 1;
+          nextDelay = Math.min(15000, WIFI_VISION_MS * 2 ** Math.min(failures, 3));
+          onResult([], "error", error instanceof Error ? error.message : "Inference failed");
+        }
+      }
+      if (!stopped) timer = setTimeout(() => void wifiScan(), nextDelay);
+    };
+    void wifiScan();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  }, [isWifiStream, isConnected, onResult, enableTrashModel, enableOilModel]);
+
+  useEffect(() => {
+    if (!stream || isWifiStream || !isConnected) {
+      if (!stream) onResult([], "idle");
       return;
     }
     let stopped = false;
@@ -92,7 +175,6 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
       const scanStarted = performance.now();
       let nextDelay = 100;
       const video = videoRef.current;
-      const img = imageRef.current;
 
       try {
         let frameAvailable = false;
@@ -113,25 +195,10 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             canvas.height
           );
           frameAvailable = true;
-        } else if (isWifiStream && img && img.naturalWidth && img.naturalHeight) {
-          const sourceWidth = Math.min(img.naturalWidth, img.naturalHeight * 16 / 9);
-          const sourceHeight = sourceWidth * 9 / 16;
-          context.drawImage(
-            img,
-            (img.naturalWidth - sourceWidth) / 2,
-            (img.naturalHeight - sourceHeight) / 2,
-            sourceWidth,
-            sourceHeight,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-          );
-          frameAvailable = true;
         }
 
         if (frameAvailable) {
-          const image = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+          const image = canvas.toDataURL("image/jpeg", 0.72).split(",")[1];
           const response = await fetch("/api/vision", {
             method: "POST",
             headers: {
@@ -156,7 +223,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             failures = 0;
             onResult(parsed, "ready", "", meta);
             // Leave bandwidth/CPU for live video; never queue inference work.
-            nextDelay = Math.max(250, 100 - (performance.now() - scanStarted));
+            nextDelay = Math.max(USB_VISION_MIN_MS, 180 - (performance.now() - scanStarted));
           }
         }
       } catch (error) {
@@ -215,14 +282,13 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             ) : (
               <img
                 ref={imageRef}
-                src={`${wifiStreamUrl}${wifiStreamUrl.includes("?") ? "&" : "?"}retry=${streamAttempt}`}
+                src={`${wifiStreamUrl}${wifiStreamUrl.includes("?") ? "&" : "?"}live=${streamAttempt}`}
                 onError={() => {
                   clearTimeout(retryTimer.current);
-                  retryTimer.current = setTimeout(() => setStreamAttempt((attempt) => attempt + 1), 2000);
+                  retryTimer.current = setTimeout(() => setStreamAttempt((attempt) => attempt + 1), 1500);
                 }}
                 alt="Live Camera Feed"
                 className={styles.cameraVideo}
-                crossOrigin="anonymous"
               />
             )}
             <div className={styles.detectionOverlay} aria-hidden="true">

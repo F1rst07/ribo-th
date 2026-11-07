@@ -27,7 +27,11 @@ export async function POST(request: NextRequest) {
         const resp = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify({
+            command,
+            ssid: body.ssid,
+            password: body.password,
+          }),
           signal: controller.signal,
         });
 

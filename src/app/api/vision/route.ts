@@ -2,10 +2,17 @@ import { isSameRequestOrigin, unoqHost } from "@/lib/unoqEndpoint";
 
 const MAX_IMAGE_LENGTH = 1_500_000;
 
+function visionHostAllowed(hostname: string): boolean {
+  if (process.env.RIBO_DEVICE_MODE === "true") return true;
+  if (["localhost", "127.0.0.1", "[::1]"].includes(hostname)) return true;
+  if (hostname === "ribo-th.vercel.app" || hostname.endsWith(".vercel.app")) return true;
+  return process.env.NODE_ENV === "development";
+}
+
 export async function POST(request: Request) {
   const host = new URL(request.url).hostname;
-  if (process.env.RIBO_DEVICE_MODE !== "true" && (process.env.NODE_ENV !== "development" || !["localhost", "127.0.0.1", "[::1]"].includes(host))) {
-    return Response.json({ error: "Local testing only" }, { status: 403 });
+  if (!visionHostAllowed(host)) {
+    return Response.json({ error: "Vision proxy not enabled for this host" }, { status: 403 });
   }
   if (!isSameRequestOrigin(request)) {
     return Response.json({ error: "Invalid origin" }, { status: 403 });

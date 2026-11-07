@@ -6,6 +6,7 @@ and its pin mapping are installed. Never report simulated motor success.
 import base64
 import json
 import os
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -38,6 +39,43 @@ class Handler(BaseHTTPRequestHandler):
         active = self.streamer.current_jpeg is not None and time.time() - self.streamer.last_frame_time < 3
         return {"active": active, "deviceName": self.streamer.device_name, "fps": self.streamer.fps if active else 0,
                 "width": 640, "height": 480, "streamUrl": "/camera/stream"}
+
+    def connect_wifi(self, ssid: str, password: str | None = None):
+        ssid = (ssid or "").strip()
+        if not ssid:
+            return self.json(400, {"success": False, "error": "SSID required"})
+        pwd = (password or "").strip()
+        attempts = [
+            ["nmcli", "device", "wifi", "connect", ssid] + (["password", pwd] if pwd else []),
+            ["sudo", "-n", "nmcli", "device", "wifi", "connect", ssid] + (["password", pwd] if pwd else []),
+        ]
+        last = ""
+        for cmd in attempts:
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
+                out = (proc.stdout or proc.stderr or "").strip()
+                if proc.returncode == 0:
+                    wlan_ip = ""
+                    try:
+                        ip_proc = subprocess.run(
+                            ["bash", "-lc", "ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                            check=False,
+                        )
+                        wlan_ip = (ip_proc.stdout or "").strip()
+                    except Exception:
+                        pass
+                    return self.json(200, {
+                        "success": True,
+                        "message": out or f"Connected to {ssid}",
+                        "wlanIp": wlan_ip or None,
+                    })
+                last = out or f"exit {proc.returncode}"
+            except Exception as error:
+                last = str(error)
+        return self.json(502, {"success": False, "error": last or "Wi-Fi connect failed"})
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -85,7 +123,26 @@ class Handler(BaseHTTPRequestHandler):
         self.json(404, {"error": "Not found"})
 
     def do_POST(self):
-        if self.path == "/api/command":
+        path = self.path.split("?")[0]
+        if path in ("/api/network/wifi", "/api/wifi/connect"):
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                data = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                return self.json(400, {"success": False, "error": "Invalid JSON"})
+            return self.connect_wifi(data.get("ssid", ""), data.get("password"))
+        if path == "/api/command":
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            raw = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
+            try:
+                data = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                data = {}
+            command = str(data.get("command", "") or "").strip()
+            if command.startswith("WIFI:CONNECT:"):
+                ssid = command.split(":", 2)[-1].strip() or str(data.get("ssid", "")).strip()
+                return self.connect_wifi(ssid, data.get("password"))
             return self.json(503, {"success": False, "error": "MCU control unavailable; no command was sent"})
         if self.path != "/detect":
             return self.json(404, {"error": "Not found"})
@@ -119,7 +176,7 @@ if __name__ == "__main__":
     Handler.detector = LocalTrashDetector(root / "trash_new.onnx", oil_model_path=root / "oil_best.onnx",
                                           secondary_model_path=root / "milk.onnx", oil_fallback_path=root / "oil_fallback.onnx",
                                           oil_confidence=0.36, image_size=448,
-                                          hold_timeout=0.35, oil_hold_timeout=0.50,
+                                          hold_timeout=1.4, oil_hold_timeout=0.50,
                                           confirmation_hits=1, oil_confirmation_hits=1,
                                           parallel_inference=True)
     if Handler.detector.secondary_model is None or Handler.detector.oil_model is None or Handler.detector.oil_fallback_model is None:

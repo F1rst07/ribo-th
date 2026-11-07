@@ -392,6 +392,45 @@ def is_valid_trash_candidate(
     return True
 
 
+def trash_class_is_vague(raw_name: str) -> bool:
+    name = (raw_name or "").lower().strip()
+    return name in {"other", "other plastic", "unknown"} or name.startswith("other ")
+
+
+def is_structure_false_positive(
+    box: list[float],
+    img_w: int,
+    img_h: int,
+    raw_name: str,
+    conf: float,
+) -> bool:
+    """ขอบเพดาน ประตู หรือวงกบที่โมเดลคลาส Other มักยิงใส่"""
+    left, top, right, bottom = box
+    box_w = max(1.0, right - left)
+    box_h = max(1.0, bottom - top)
+    touches_top = top <= img_h * 0.10
+    wide_short = box_w >= img_w * 0.22 and box_h <= img_h * 0.40
+    if touches_top and wide_short and (trash_class_is_vague(raw_name) or conf < 0.85):
+        return True
+    return False
+
+
+def can_acquire_trash(det: dict[str, Any]) -> bool:
+    """ชิ้นที่ใช้เริ่มล็อกได้: คลาสชัดล็อกได้ทันที, คลาสคลุมเครือต้องมั่นใจสูง, ไม่ใช้โมเดลรอง"""
+    if int(det.get("class_id", 0)) >= 100:
+        return False
+    conf = float(det["conf"])
+    if trash_class_is_vague(str(det.get("raw_name", ""))):
+        return conf >= 0.82
+    return conf >= 0.42
+
+
+def trash_center_left_view(box: list[float], img_w: int, img_h: int) -> bool:
+    cx = (box[0] + box[2]) / 2.0
+    cy = (box[1] + box[3]) / 2.0
+    return cx < 0.0 or cy < 0.0 or cx > img_w or cy > img_h
+
+
 class LocalTrashDetector:
     def __init__(
         self,
@@ -525,7 +564,10 @@ class LocalTrashDetector:
         self.tracked_objects: dict[int, Any] = {}
         self.next_track_id = 1
         self.last_frame_timestamp = 0.0
-        self.inference_executor = ThreadPoolExecutor(max_workers=4) if parallel_inference else None
+        self._detect_tick = 0
+        self._cached_oil_result = None
+        self._cached_secondary_boxes: list[Any] = []
+        self.inference_executor = ThreadPoolExecutor(max_workers=2) if parallel_inference else None
 
     def _predict_once(self, model: Any, image: np.ndarray, confidence: float) -> Any | None:
         results = model.predict(
@@ -705,20 +747,21 @@ class LocalTrashDetector:
         secondary_boxes = []
 
         with self.lock:
+            self._detect_tick += 1
+            # Trash runs every frame. Oil and the milk model share the CPU, so they run every 4th frame.
+            run_aux = self._detect_tick % 4 == 0
             inference_jobs: dict[str, tuple[Any, float]] = {}
             if enable_trash:
                 inference_jobs["trash"] = (self.model, self.confidence)
-                if self.secondary_model is not None:
+                if run_aux and self.secondary_model is not None:
                     inference_jobs["secondary"] = (self.secondary_model, max(0.20, self.confidence))
             else:
                 self.locked_target = None
                 self.primary_track_id = None
 
             if enable_oil:
-                if self.oil_model is not None:
+                if run_aux and self.oil_model is not None:
                     inference_jobs["oil"] = (self.oil_model, self.oil_confidence)
-                    if self.inference_executor is not None and self.oil_fallback_model is not None:
-                        inference_jobs["oil_fallback"] = (self.oil_fallback_model, self.oil_confidence)
             else:
                 self.oil_tracks.clear()
                 self.locked_oil = None
@@ -748,8 +791,15 @@ class LocalTrashDetector:
             secondary_result = inference_results.get("secondary")
             if secondary_result is not None and secondary_result.boxes is not None:
                 secondary_boxes = secondary_result.boxes
+                self._cached_secondary_boxes = secondary_boxes
+            elif not run_aux:
+                secondary_boxes = self._cached_secondary_boxes
+            if run_aux:
+                self._cached_oil_result = oil_result
+            elif enable_oil:
+                oil_result = self._cached_oil_result
 
-            if (enable_oil and self.oil_fallback_model is not None and oil_result is not None
+            if (run_aux and enable_oil and self.oil_fallback_model is not None and oil_result is not None
                     and oil_result.boxes is not None and len(oil_result.boxes) == 0):
                 if oil_fallback_result is not None:
                     oil_result = oil_fallback_result
@@ -783,6 +833,8 @@ class LocalTrashDetector:
                     continue
                 class_id = int(box.cls.item())
                 raw_name = self.names.get(class_id, "unknown")
+                if is_structure_false_positive([left, top, right, bottom], img_w, img_h, raw_name, conf):
+                    continue
                 raw_detections.append(
                     {
                         "class_id": class_id,
@@ -821,11 +873,15 @@ class LocalTrashDetector:
             ):
                 deduped_detections.append(det)
 
-        # Device CPU inference may take longer than the normal hold window.
-        # Allow a current spatial/class match to confirm the next observation;
-        # never extend a missing target's hold window.
+        # ล็อกทีละชิ้นจนกว่าจุดกึ่งกลางจะออกจากภาพ ไม่สลับไปชิ้นอื่นระหว่างที่ยังจับคู่ได้
+        if self.locked_target is not None and trash_center_left_view(self.locked_target.box, img_w, img_h):
+            self.locked_target = None
+            self.primary_track_id = None
+
         if self.locked_target is not None:
-            has_current_match = any(compute_target_match_score(det, self.locked_target, now) >= 0.18 for det in deduped_detections)
+            has_current_match = any(
+                compute_target_match_score(det, self.locked_target, now) >= 0.18 for det in deduped_detections
+            )
             if not has_current_match and (now - self.locked_target.last_seen) > self.hold_timeout:
                 self.locked_target = None
                 self.primary_track_id = None
@@ -855,8 +911,9 @@ class LocalTrashDetector:
                     self.locked_target = None
                     self.primary_track_id = None
         else:
-            if deduped_detections:
-                best_cand = max(deduped_detections, key=lambda d: d["conf"])
+            acquirable = [det for det in deduped_detections if can_acquire_trash(det)]
+            if acquirable:
+                best_cand = max(acquirable, key=lambda d: d["conf"])
                 target_id = self.next_track_id
                 self.next_track_id += 1
                 self.locked_target = LockedTarget(

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   for (const url of targetUrls) {
     try {
       const resp = await fetch(url, {
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(6000),
         cache: "no-store",
       });
 

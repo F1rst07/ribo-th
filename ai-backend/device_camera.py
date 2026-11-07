@@ -117,12 +117,15 @@ class CameraStreamer:
                     time.sleep(1.0)
                     continue
 
-                # Drain capture continuously; encode only fresh frames near 15 FPS.
-                if time.monotonic() - last_encoded_at < 0.9 / 15:
+                # Drain capture continuously; encode ~10 FPS so Wi-Fi stays smooth without a 15 FPS MJPEG flood.
+                if time.monotonic() - last_encoded_at < 0.1:
                     continue
                 last_encoded_at = time.monotonic()
-                # Encode frame to JPEG (Quality 70, target 15 FPS)
-                ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                height, width = frame.shape[:2]
+                if width > 480:
+                    frame = cv2.resize(frame, (480, int(height * 480 / width)), interpolation=cv2.INTER_AREA)
+                # Quality 52 keeps motion readable at roughly half the bytes of quality 70.
+                ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 52])
                 if ret:
                     with self.frame_ready:
                         self.current_frame = frame

@@ -5,6 +5,12 @@ export function unoqHost(requested: string): string {
   return requested;
 }
 
+export function unoqDirectApiUrl(requested: string, backendPath: string): string {
+  const host = unoqHost(requested);
+  if (process.env.RIBO_DEVICE_MODE === "true") return `http://${host}:8000${backendPath}`;
+  return `http://${host}:8000${backendPath}`;
+}
+
 export function unoqApiUrl(requested: string, route: string, backendPath: string): string {
   const host = unoqHost(requested);
   if (process.env.RIBO_DEVICE_MODE === "true") return `http://${host}:8000${backendPath}`;

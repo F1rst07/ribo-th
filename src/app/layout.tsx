@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "กำลังพัฒนาอยู่... | RIBO-TH",
-  description: "RIBO-TH กำลังพัฒนาเว็บไซต์และปรับปรุงระบบ",
+  title: "RIBO-TH — Robot Control System",
+  description: "ระบบควบคุมเรือหุ่นยนต์อัตโนมัติ RIBO-TH",
   robots: {
     index: false,
     follow: false,

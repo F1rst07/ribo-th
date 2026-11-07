@@ -23,6 +23,11 @@ import {
   listenToHardwareHotplug,
   getUnoQIp,
   setUnoQIp,
+  getUnoQWifiSsid,
+  setUnoQWifiSsid,
+  fetchUnoQBoardWifiStatus,
+  setupUnoQBoardWifi,
+  discoverUnoQOnLan,
 } from "./hardwareService";
 import styles from "./dashboard.module.css";
 import { AutoTargetGate } from "./autoTargetGate";
@@ -43,24 +48,66 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   const t = strings[isMounted ? lang : "th"];
 
   // สถานะการเชื่อมต่อฮาร์ดแวร์จริง (Arduino UNO Q & กล้อง Logitech C270)
-  const [boardIp, setBoardIp] = useState<string>("172.20.10.3");
+  const [boardIp, setBoardIp] = useState<string>("");
+  const [wifiSsid, setWifiSsid] = useState<string>("Tuangthong Mansion_5G");
+  const [wifiPassword, setWifiPassword] = useState<string>("");
+  const [adbUsbReady, setAdbUsbReady] = useState(false);
+  const [networkHost, setNetworkHost] = useState("");
+  const [isWifiSettingUp, setIsWifiSettingUp] = useState(false);
+  const [connectionBanner, setConnectionBanner] = useState<string>("");
+  const [connectionBannerTone, setConnectionBannerTone] = useState<
+    "error" | "info"
+  >("info");
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
     setBoardIp(getUnoQIp());
+    setWifiSsid(getUnoQWifiSsid());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inflight = false;
+    const pollUsb = async () => {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const status = await fetchUnoQBoardWifiStatus();
+        if (cancelled) return;
+        setAdbUsbReady(status.ready);
+        if (status.hostname) setNetworkHost(status.hostname);
+        if (status.wlanIp) {
+          setBoardIp((prev) => {
+            if (prev === status.wlanIp) return prev;
+            setUnoQIp(status.wlanIp!);
+            return status.wlanIp!;
+          });
+        } else if (status.boardReachable === false) {
+          setBoardIp("");
+        }
+      } finally {
+        inflight = false;
+      }
+    };
+    void pollUsb();
+    const timer = setInterval(pollUsb, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   const handleIpChange = (newIp: string) => {
     setBoardIp(newIp);
     setUnoQIp(newIp);
-    appendLog(
-      "INFO",
-      lang === "th"
-        ? `กำหนด IP ของ Arduino UNO Q ใหม่เป็น ${newIp}`
-        : `Updated Arduino UNO Q IP to ${newIp}`
-    );
   };
+
+  const handleWifiSsidChange = (ssid: string) => {
+    setWifiSsid(ssid);
+    setUnoQWifiSsid(ssid);
+  };
+
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isWifiStream, setIsWifiStream] = useState<boolean>(false);
   const [wifiStreamUrl, setWifiStreamUrl] = useState<string>("/api/arduino/stream");
@@ -121,6 +168,45 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
     []
   );
 
+  const handleSetupWifi = useCallback(async () => {
+    if (isWifiSettingUp) return;
+    setIsWifiSettingUp(true);
+    appendLog(
+      "INFO",
+      lang === "th"
+        ? `กำลังตั้ง Wi-Fi บนบอร์ด : ${wifiSsid.trim()}...`
+        : `Configuring board Wi-Fi: ${wifiSsid.trim()}...`
+    );
+    try {
+      const result = await setupUnoQBoardWifi(
+        wifiSsid,
+        wifiPassword,
+        boardIp.trim() || undefined
+      );
+      if (result.success) {
+        appendLog("SUCCESS", result.message);
+        setConnectionBanner(t.wifiSetupOk);
+        setConnectionBannerTone("info");
+        if (result.wlanIp) {
+          setBoardIp(result.wlanIp);
+          setUnoQIp(result.wlanIp);
+        }
+        const refreshed = await fetchUnoQBoardWifiStatus();
+        setAdbUsbReady(refreshed.ready);
+        if (refreshed.wlanIp) {
+          setBoardIp(refreshed.wlanIp);
+          setUnoQIp(refreshed.wlanIp);
+        }
+      } else {
+        appendLog("WARN", result.message);
+        setConnectionBanner(result.message);
+        setConnectionBannerTone("error");
+      }
+    } finally {
+      setIsWifiSettingUp(false);
+    }
+  }, [appendLog, boardIp, isWifiSettingUp, t.wifiSetupOk, wifiPassword, wifiSsid]);
+
   // Camera can appear after the board connection (USB hotplug or service startup).
   useEffect(() => {
     if (macAiMode || !isConnected || cameraStream) return;
@@ -131,7 +217,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       if (stopped) return;
       setIsWifiStream(status.active);
       if (status.active && status.streamUrl) setWifiStreamUrl(status.streamUrl);
-      timer = setTimeout(() => void pollCamera(), 3000);
+      timer = setTimeout(() => void pollCamera(), 8000);
     };
     void pollCamera();
     return () => {
@@ -555,15 +641,53 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
 
     if (!isConnected) {
       setIsConnecting(true);
+      setConnectionBanner("");
+
+      let targetIp = boardIp.trim();
+      const usbStatus = await fetchUnoQBoardWifiStatus();
+      setAdbUsbReady(usbStatus.ready);
+      if (usbStatus.wlanIp) {
+        targetIp = usbStatus.wlanIp;
+      } else {
+        appendLog(
+          "INFO",
+          lang === "th"
+            ? "กำลังค้นหาบอร์ดบน Wi-Fi นี้..."
+            : "Searching for the board on this Wi-Fi..."
+        );
+        const found = await discoverUnoQOnLan();
+        if (found.found && found.ip) {
+          targetIp = found.ip;
+          if (found.hostname) setNetworkHost(found.hostname);
+          appendLog(
+            "SUCCESS",
+            lang === "th"
+              ? `พบบอร์ดที่ ${targetIp} (${found.source || "scan"})`
+              : `Found board at ${targetIp} (${found.source || "scan"})`
+          );
+        }
+      }
+      if (targetIp) {
+        setBoardIp(targetIp);
+        setUnoQIp(targetIp);
+      } else {
+        const offlineMsg = t.boardNotFoundWifi;
+        appendLog("WARN", offlineMsg);
+        setConnectionBanner(offlineMsg);
+        setConnectionBannerTone("error");
+        setIsConnecting(false);
+        return;
+      }
+
       appendLog(
         "INFO",
         lang === "th"
-          ? `กำลังตรวจสอบการเชื่อมต่อ Arduino UNO Q ผ่าน Wi-Fi (${boardIp})...`
-          : `Connecting to Arduino UNO Q via Wi-Fi (${boardIp})...`
+          ? `กำลังตรวจสอบการเชื่อมต่อ Arduino UNO Q ผ่าน Wi-Fi (${targetIp})...`
+          : `Connecting to Arduino UNO Q via Wi-Fi (${targetIp})...`
       );
 
       try {
-        const result = await connectArduinoUnoQ(boardIp, (incomingLine) => {
+        const result = await connectArduinoUnoQ(targetIp, (incomingLine) => {
           // จัดกลุ่มประเภทข้อความจาก Arduino ให้ตรงความหมาย โดยไม่บันทึกข้อความขยะ
           const upper = incomingLine.toUpperCase();
           if (upper.includes("ERROR") || upper.includes("FAIL")) {
@@ -591,12 +715,10 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 : "Cancelled Arduino UNO Q port selection"
             );
           } else {
-            appendLog(
-              "WARN",
-              lang === "th"
-                ? `การเชื่อมต่อ Wi-Fi ล้มเหลว : ${result.error || "ไม่พบอุปกรณ์"}`
-                : `Wi-Fi connection failed : ${result.error || "Device not found"}`
-            );
+            const failMsg = t.boardNoResponse.replace("{ip}", targetIp);
+            appendLog("WARN", failMsg);
+            setConnectionBanner(failMsg);
+            setConnectionBannerTone("error");
           }
           setIsConnecting(false);
           return;
@@ -608,6 +730,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
             ? `เชื่อมต่อ Arduino UNO Q ผ่าน Wi-Fi สำเร็จ (${result.portName || boardIp}) — เปิดการทำงานระบบ`
             : `Connected to Arduino UNO Q via Wi-Fi (${result.portName || boardIp}) — Systems active`
         );
+        setConnectionBanner("");
 
         // ส่งคำสั่งเริ่มต้นระบบไปยัง Arduino UNO Q
         await sendCommandToArduino("CMD:INIT");
@@ -645,12 +768,13 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         } else {
           setIsWifiStream(false);
           setCameraStream(null);
-          appendLog(
-            "WARN",
+          const camWarn =
             lang === "th"
-              ? `ไม่พบสัญญาณกล้อง : ${camResult.error || "กรุณาต่อกล้องเข้ากับบอร์ด Arduino UNO Q หรือคอมพิวเตอร์"}`
-              : `Camera not detected : ${camResult.error || "Please connect camera to Arduino UNO Q or computer"}`
-          );
+              ? `ไม่พบสัญญาณกล้อง : ${camResult.error || "เสียบ Logitech C270 เข้า USB ของ UNO Q (ไม่ใช่ Mac) แล้วรอระบบตรวจซ้ำ"}`
+              : `Camera not detected : ${camResult.error || "Plug Logitech C270 into UNO Q USB (not the Mac), then wait for retry"}`;
+          appendLog("WARN", camWarn);
+          setConnectionBanner(camWarn);
+          setConnectionBannerTone("error");
         }
 
         setIsConnected(true);
@@ -904,6 +1028,18 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 isConnecting={isConnecting}
                 onToggleConnect={handleToggleConnect}
                 lang={lang}
+                boardIp={boardIp}
+                onBoardIpChange={handleIpChange}
+                wifiSsid={wifiSsid}
+                onWifiSsidChange={handleWifiSsidChange}
+                wifiPassword={wifiPassword}
+                onWifiPasswordChange={setWifiPassword}
+                onSetupWifi={handleSetupWifi}
+                isWifiSettingUp={isWifiSettingUp}
+                adbUsbReady={adbUsbReady}
+                networkHost={networkHost}
+                statusBanner={connectionBanner}
+                statusBannerTone={connectionBannerTone}
               />
             </div>
 
