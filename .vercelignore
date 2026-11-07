@@ -1,0 +1,16 @@
+# Python & AI backend
+ai-backend/
+archive/
+datasets/
+models/
+runs/
+scratch/
+weights/
+milk/
+RIBO-TH-Dashboard-Handoff/
+*.pt
+*.pt.*
+*.onnx
+*.zip
+*.log
+
