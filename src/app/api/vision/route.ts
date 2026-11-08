@@ -1,3 +1,5 @@
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonResponseWithCors } from "@/lib/cors";
 import { isSameRequestOrigin, unoqHost } from "@/lib/unoqEndpoint";
 
 const MAX_IMAGE_LENGTH = 1_500_000;
@@ -9,19 +11,29 @@ function visionHostAllowed(hostname: string): boolean {
   return process.env.NODE_ENV === "development";
 }
 
-export async function POST(request: Request) {
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
+
+export async function POST(request: NextRequest) {
   const host = new URL(request.url).hostname;
   if (!visionHostAllowed(host)) {
-    return Response.json({ error: "Vision proxy not enabled for this host" }, { status: 403 });
+    return jsonResponseWithCors(
+      request,
+      { error: "Vision proxy not enabled for this host" },
+      { status: 403 }
+    );
   }
   if (!isSameRequestOrigin(request)) {
-    return Response.json({ error: "Invalid origin" }, { status: 403 });
+    return jsonResponseWithCors(request, { error: "Invalid origin" }, { status: 403 });
   }
   const length = Number(request.headers.get("content-length"));
-  if (length > MAX_IMAGE_LENGTH) return Response.json({ error: "Image too large" }, { status: 413 });
+  if (length > MAX_IMAGE_LENGTH) {
+    return jsonResponseWithCors(request, { error: "Image too large" }, { status: 413 });
+  }
   const image = await request.text();
   if (!image || image.length > MAX_IMAGE_LENGTH || !/^[A-Za-z0-9+/=\r\n]+$/.test(image)) {
-    return Response.json({ error: "Invalid image" }, { status: 400 });
+    return jsonResponseWithCors(request, { error: "Invalid image" }, { status: 400 });
   }
 
   try {
@@ -29,15 +41,16 @@ export async function POST(request: Request) {
     const enableOil = request.headers.get("X-Enable-Oil") ?? "1";
     const onDevice = process.env.RIBO_DEVICE_MODE === "true";
     const useMacAi = process.env.RIBO_MAC_AI === "true";
-    const boardHost = unoqHost(request.headers.get("X-UNOQ-IP") || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3");
+    const boardHost = unoqHost(
+      request.headers.get("X-UNOQ-IP") || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3"
+    );
     if (!onDevice && !useMacAi && ["localhost", "127.0.0.1"].includes(boardHost)) {
-      return Response.json({ error: "Choose the UNO Q network address" }, { status: 400 });
+      return jsonResponseWithCors(request, { error: "Choose the UNO Q network address" }, { status: 400 });
     }
-    // Local validation can run the full-precision PyTorch models on the Mac.
-    // Device deployments and the default desktop mode continue using UNO Q.
-    const backend = onDevice || useMacAi
-      ? "http://127.0.0.1:8000/detect"
-      : `http://${boardHost}:3000/api/vision`;
+    const backend =
+      onDevice || useMacAi
+        ? "http://127.0.0.1:8000/detect"
+        : `http://${boardHost}:3000/api/vision`;
     const response = await fetch(backend, {
       method: "POST",
       headers: {
@@ -50,26 +63,42 @@ export async function POST(request: Request) {
       cache: "no-store",
     });
     if (response.status === 429) {
-      return Response.json({ error: "AI is processing another frame; retry with a fresh frame" },
-        { status: 429, headers: { "Retry-After": "1" } });
+      return jsonResponseWithCors(
+        request,
+        { error: "AI is processing another frame; retry with a fresh frame" },
+        { status: 429, headers: { "Retry-After": "1" } }
+      );
     }
     if (!response.ok) {
-      return Response.json({ error: `Local AI request failed (${response.status})` }, { status: 502 });
+      return jsonResponseWithCors(
+        request,
+        { error: `Local AI request failed (${response.status})` },
+        { status: 502 }
+      );
     }
     const result = await response.json();
-    if (!Array.isArray(result.predictions) || result.meta?.source !== "local" ||
-        typeof result.meta?.oil_auto_ready !== "boolean" || typeof result.meta?.model !== "string") {
+    if (
+      !Array.isArray(result.predictions) ||
+      result.meta?.source !== "local" ||
+      typeof result.meta?.oil_auto_ready !== "boolean" ||
+      typeof result.meta?.model !== "string"
+    ) {
       throw new Error("Unexpected inference service; check the UNO Q deployment");
     }
     console.info(
       `[vision] source=${result.meta?.source ?? "unknown"} ` +
-      `frame=${result.meta?.frame_id ?? "?"} detections=${result.predictions.length} fps=${result.meta?.fps ?? 0}`
+        `frame=${result.meta?.frame_id ?? "?"} detections=${result.predictions.length} fps=${result.meta?.fps ?? 0}`
     );
-    return Response.json(
+    return jsonResponseWithCors(
+      request,
       { ...result, meta: { ...result.meta, model: "on-device vision" } },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch {
-    return Response.json({ error: "AI service unavailable or returned an incompatible response" }, { status: 502 });
+    return jsonResponseWithCors(
+      request,
+      { error: "AI service unavailable or returned an incompatible response" },
+      { status: 502 }
+    );
   }
 }

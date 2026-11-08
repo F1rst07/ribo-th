@@ -1,8 +1,28 @@
 import { execFile } from "child_process";
 import { existsSync, readFileSync } from "fs";
+import os from "os";
 import { promisify } from "util";
 
 const execFileAsync = promisify(execFile);
+
+/** Wi-Fi address of this process when it is running on the UNO Q itself. */
+export function deviceLanAddress(): string | undefined {
+  if (!isRunningOnUnoQHost()) return undefined;
+  const nets = os.networkInterfaces();
+  const names = ["wlan0", ...Object.keys(nets)];
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (name === "lo" || /^(usb|rndis|docker|br-)/.test(name)) continue;
+    for (const addr of nets[name] || []) {
+      const ip = addr.address;
+      if (addr.family !== "IPv4" || addr.internal) continue;
+      if (ip.startsWith("192.168.") || ip.startsWith("10.")) return ip;
+    }
+  }
+  return undefined;
+}
 
 export function isRunningOnUnoQHost(): boolean {
   if (process.env.RIBO_DEVICE_MODE === "true") return true;

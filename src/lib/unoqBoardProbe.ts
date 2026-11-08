@@ -25,10 +25,13 @@ export async function probeUnoQHealth(
   timeoutMs = 900
 ): Promise<boolean> {
   const host = unoqHost(ip);
-  const urls = [
-    `http://${host}:8000/api/health`,
-    `http://${host}:3000/api/arduino/status?ip=127.0.0.1`,
-  ];
+  const local = host === "127.0.0.1" || host === "localhost";
+  const urls = local
+    ? [
+        `http://127.0.0.1:8000/api/health`,
+        `http://127.0.0.1:3000/api/arduino/status?ip=127.0.0.1`,
+      ]
+    : [`http://${host}:3000/api/arduino/status?ip=${encodeURIComponent(host)}`];
   for (const url of urls) {
     try {
       const resp = await fetch(url, {

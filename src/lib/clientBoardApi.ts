@@ -1,5 +1,12 @@
 /** Browser opened on Vercel (or similar); API must hit the board on the LAN, not the cloud host. */
 
+export function isMobileBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod|Android|Mobile/i.test(ua)) return true;
+  return window.matchMedia("(pointer: coarse)").matches && window.innerWidth < 900;
+}
+
 export function isCloudDashboard(): boolean {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname;
@@ -45,30 +52,23 @@ export async function discoverBoardFromBrowser(): Promise<{
   }
 
   for (const prefix of SUBNET_PREFIXES) {
-    const chunk: number[] = [];
-    for (let n = 1; n <= 254; n++) chunk.push(n);
-    for (let i = 0; i < chunk.length; i += 24) {
-      const slice = chunk.slice(i, i + 24);
-      const hits = await Promise.all(
-        slice.map(async (n) => {
-          const ip = `${prefix}.${n}`;
-          return (await probeBoardFromBrowser(ip)) ? ip : null;
-        })
-      );
-      const ip = hits.find(Boolean);
-      if (ip) return { found: true, ip, source: "scan" };
+    const likely = `${prefix}.15`;
+    if (await probeBoardFromBrowser(likely, 2500)) {
+      return { found: true, ip: likely, source: "wifi" };
     }
   }
+
   return { found: false };
 }
 
-export async function probeBoardFromBrowser(ip: string, timeoutMs = 900): Promise<boolean> {
+export async function probeBoardFromBrowser(ip: string, timeoutMs = 3200): Promise<boolean> {
   try {
     const url = boardArduinoApi(ip, "status", { ip });
     const resp = await fetch(url, {
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
       mode: "cors",
+      credentials: "omit",
     });
     if (!resp.ok) return false;
     const data = await resp.json().catch(() => ({}));
@@ -78,7 +78,9 @@ export async function probeBoardFromBrowser(ip: string, timeoutMs = 900): Promis
   }
 }
 
+export const DEFAULT_BOARD_IP = "192.168.100.15";
+
 export function mobileBoardUrl(ip: string): string {
-  const host = ip.trim() || "192.168.100.15";
+  const host = ip.trim() || DEFAULT_BOARD_IP;
   return `${boardSiteOrigin(host)}/`;
 }

@@ -1,17 +1,14 @@
 "use client";
 
 import React from "react";
-import { Cpu, Camera, Zap, Unplug, Loader2, Wifi } from "lucide-react";
+import { Cpu, Zap, Unplug, Loader2, Wifi } from "lucide-react";
 import { Language, Translations } from "./translations";
-import { isCloudDashboard, mobileBoardUrl } from "@/lib/clientBoardApi";
 import styles from "./dashboard.module.css";
 
 interface ConnectionStatusProps {
   t: Translations;
   isConnected: boolean;
   cameraConnected: boolean;
-  cameraName: string;
-  isWifiStream?: boolean;
   isConnecting: boolean;
   onToggleConnect: () => void;
   lang: Language;
@@ -23,8 +20,8 @@ interface ConnectionStatusProps {
   onWifiPasswordChange: (password: string) => void;
   onSetupWifi: () => void;
   isWifiSettingUp: boolean;
+  showWifiSetup: boolean;
   adbUsbReady: boolean;
-  networkHost?: string;
   statusBanner?: string;
   statusBannerTone?: "error" | "info";
 }
@@ -33,8 +30,6 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   t,
   isConnected,
   cameraConnected,
-  cameraName,
-  isWifiStream = false,
   isConnecting,
   onToggleConnect,
   lang,
@@ -46,8 +41,8 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   onWifiPasswordChange,
   onSetupWifi,
   isWifiSettingUp,
+  showWifiSetup,
   adbUsbReady,
-  networkHost,
   statusBanner,
   statusBannerTone = "info",
 }) => {
@@ -67,32 +62,28 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
             <span>Arduino UNO Q</span>
           </div>
 
-          <button
-            type="button"
-            className={`${styles.btn} ${
-              isConnected ? styles.btnConnected : styles.btnConnect
-            }`}
-            onClick={onToggleConnect}
-            disabled={isConnecting || isWifiSettingUp}
-            title={isConnected ? t.disconnect : t.connect}
-          >
-            {isConnecting ? (
-              <>
-                <Loader2 size={12} className={styles.spin} />
-                <span>{t.connecting}</span>
-              </>
-            ) : isConnected ? (
-              <>
-                <Unplug size={12} />
-                <span>{t.disconnect}</span>
-              </>
-            ) : (
-              <>
-                <Zap size={12} />
-                <span>{t.connect}</span>
-              </>
-            )}
-          </button>
+          {showWifiSetup ? (
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnWifiSetup}`}
+              onClick={onSetupWifi}
+              disabled={
+                isWifiSettingUp || isConnecting || !wifiSsid.trim() || !boardIp.trim()
+              }
+            >
+              {isWifiSettingUp ? (
+                <>
+                  <Loader2 size={12} className={styles.spin} />
+                  <span>{t.wifiSetupBusy}</span>
+                </>
+              ) : (
+                <>
+                  <Wifi size={12} />
+                  <span>{t.wifiSetup}</span>
+                </>
+              )}
+            </button>
+          ) : null}
         </div>
 
         <div className={styles.offline}>
@@ -142,16 +133,12 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
             />
           </label>
 
-          {adbUsbReady || !networkHost ? (
+          {adbUsbReady ? (
             <p className={styles.setupHint}>
               <Wifi size={12} aria-hidden />
-              {adbUsbReady
-                ? lang === "th"
-                  ? "ตรวจพบบอร์ดผ่าน USB — ตั้ง Wi-Fi ได้จากด้านล่าง"
-                  : "Board detected over USB — configure Wi-Fi below"
-                : lang === "th"
-                  ? "กำลังหา KPhiraphat.local บน Wi-Fi นี้ — ไม่ใช้ IP เก่าอีกแล้ว"
-                  : "Looking for KPhiraphat.local on this Wi-Fi"}
+              {lang === "th"
+                ? "ตรวจพบบอร์ดผ่าน USB — ตั้ง Wi-Fi ได้จากด้านล่าง"
+                : "Board detected over USB — configure Wi-Fi below"}
             </p>
           ) : null}
 
@@ -176,22 +163,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
               value={wifiPassword}
               onChange={(e) => onWifiPasswordChange(e.target.value)}
               disabled={isWifiSettingUp}
-              placeholder={t.wifiPasswordOptional}
             />
           </label>
 
           <p className={styles.setupMicro}>{t.wifiOpenNetwork}</p>
-          {isCloudDashboard() ? (
-            <p className={styles.setupInfo}>
-              {t.mobileLanHint}{" "}
-              <a
-                href={mobileBoardUrl(boardIp)}
-                style={{ color: "#ffcc00", wordBreak: "break-all" }}
-              >
-                {mobileBoardUrl(boardIp)}
-              </a>
-            </p>
-          ) : null}
 
           {statusBanner ? (
             <p
@@ -208,52 +183,33 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
 
           <button
             type="button"
-            className={`${styles.btn} ${styles.btnWifiSetup}`}
-            onClick={onSetupWifi}
-            disabled={
-              isWifiSettingUp || isConnecting || !wifiSsid.trim() || !boardIp.trim()
-            }
+            className={`${styles.btn} ${styles.btnConnectionAction} ${
+              isConnected ? styles.btnConnected : styles.btnConnect
+            }`}
+            onClick={onToggleConnect}
+            disabled={isConnecting || isWifiSettingUp}
+            title={isConnected ? t.disconnect : t.connect}
           >
-            {isWifiSettingUp ? (
+            {isConnecting ? (
               <>
                 <Loader2 size={12} className={styles.spin} />
-                <span>{t.wifiSetupBusy}</span>
+                <span>{t.connecting}</span>
+              </>
+            ) : isConnected ? (
+              <>
+                <Unplug size={12} />
+                <span>{t.disconnect}</span>
               </>
             ) : (
               <>
-                <Wifi size={12} />
-                <span>{t.wifiSetup}</span>
+                <Zap size={12} />
+                <span>{t.connect}</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      <div className={styles.statusCard}>
-        <div className={styles.statusHeader}>
-          <Camera size={16} color="#ffcc00" />
-          <span>{cameraName}</span>
-        </div>
-        <div className={styles.offline}>
-          <span
-            className={cameraConnected ? styles.onlineDot : styles.offlineDot}
-            aria-hidden="true"
-          />
-          <span
-            style={
-              cameraConnected ? { color: "#4ade80", fontWeight: 600 } : undefined
-            }
-          >
-            {cameraConnected
-              ? isWifiStream
-                ? lang === "th"
-                  ? "เปิดกล้องแล้ว (Wi-Fi)"
-                  : "Camera Active (Wi-Fi)"
-                : t.cameraActive
-              : t.offline}
-          </span>
-        </div>
-      </div>
     </section>
   );
 };

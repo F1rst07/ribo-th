@@ -1,17 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
 import { connectUnoQWifi, discoverBoardOnLan, readUnoQLanStatus } from "@/lib/unoqAdb";
 import { isSameRequestOrigin } from "@/lib/unoqEndpoint";
 import { applyWifiOnDevice, isRunningOnUnoQHost } from "@/lib/unoqWifiOnDevice";
 import { pushWifiToBoard } from "@/lib/pushWifiToBoard";
 
-export async function GET() {
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
+
+export async function GET(request: NextRequest) {
   const status = await readUnoQLanStatus();
-  return NextResponse.json(status);
+  return jsonWithCors(request, status);
 }
 
 export async function POST(request: NextRequest) {
   if (!isSameRequestOrigin(request)) {
-    return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
+    return jsonWithCors(request, { success: false, message: "Forbidden" }, { status: 403 });
   }
 
   let body: {
@@ -23,7 +28,7 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ success: false, message: "Invalid JSON" }, { status: 400 });
+    return jsonWithCors(request, { success: false, message: "Invalid JSON" }, { status: 400 });
   }
 
   const ssid = String(body.ssid || "").trim();
@@ -31,7 +36,7 @@ export async function POST(request: NextRequest) {
 
   if (isRunningOnUnoQHost()) {
     const result = await applyWifiOnDevice(ssid, password);
-    return NextResponse.json(result, { status: result.success ? 200 : 502 });
+    return jsonWithCors(request, result, { status: result.success ? 200 : 502 });
   }
 
   const boardIp =
@@ -41,9 +46,9 @@ export async function POST(request: NextRequest) {
 
   if (boardIp && body.applyOnDevice !== false) {
     const remote = await pushWifiToBoard(ssid, password, boardIp);
-    return NextResponse.json(remote, { status: remote.success ? 200 : 502 });
+    return jsonWithCors(request, remote, { status: remote.success ? 200 : 502 });
   }
 
   const result = await connectUnoQWifi(ssid, password);
-  return NextResponse.json(result, { status: result.success ? 200 : 502 });
+  return jsonWithCors(request, result, { status: result.success ? 200 : 502 });
 }

@@ -1,6 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
-import { unoqApiUrl } from "@/lib/unoqEndpoint";
-import { isUnoQHealthPayload, unoqHost } from "@/lib/unoqBoardProbe";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
+import { unoqApiUrl, unoqHost } from "@/lib/unoqEndpoint";
+import { isUnoQHealthPayload } from "@/lib/unoqBoardProbe";
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -11,7 +16,8 @@ export async function GET(request: NextRequest) {
   ).trim();
 
   if (!requestedIp) {
-    return NextResponse.json(
+    return jsonWithCors(
+      request,
       {
         connected: false,
         ip: "",
@@ -44,7 +50,7 @@ export async function GET(request: NextRequest) {
         if (!isUnoQHealthPayload(data)) continue;
         const board = { ...data } as Record<string, unknown>;
         delete board.ip;
-        return NextResponse.json({
+        return jsonWithCors(request, {
           connected: true,
           targetUrl: url,
           ...board,
@@ -56,7 +62,8 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json(
+  return jsonWithCors(
+    request,
     {
       connected: false,
       ip: requestedIp,

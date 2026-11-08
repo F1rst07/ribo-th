@@ -31,9 +31,16 @@ import {
 } from "./hardwareService";
 import styles from "./dashboard.module.css";
 import { AutoTargetGate } from "./autoTargetGate";
+import { isCloudDashboard, mobileBoardUrl } from "@/lib/clientBoardApi";
 
 const getFormattedTime = () =>
   new Date().toLocaleTimeString("en-GB", { hour12: false });
+
+const isBoardDashboardHost = (hostname: string) =>
+  hostname.endsWith(".local") ||
+  /^192\.168\./.test(hostname) ||
+  /^10\./.test(hostname) ||
+  /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
 
 export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: boolean }> = ({
   controlAvailable = true,
@@ -49,10 +56,9 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
 
   // สถานะการเชื่อมต่อฮาร์ดแวร์จริง (Arduino UNO Q & กล้อง Logitech C270)
   const [boardIp, setBoardIp] = useState<string>("");
-  const [wifiSsid, setWifiSsid] = useState<string>("Tuangthong Mansion_5G");
+  const [wifiSsid, setWifiSsid] = useState<string>("");
   const [wifiPassword, setWifiPassword] = useState<string>("");
   const [adbUsbReady, setAdbUsbReady] = useState(false);
-  const [networkHost, setNetworkHost] = useState("");
   const [isWifiSettingUp, setIsWifiSettingUp] = useState(false);
   const [connectionBanner, setConnectionBanner] = useState<string>("");
   const [connectionBannerTone, setConnectionBannerTone] = useState<
@@ -62,38 +68,52 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
-    setBoardIp(getUnoQIp());
-    setWifiSsid(getUnoQWifiSsid());
+    if (typeof window === "undefined") return;
+    const hostname = window.location.hostname;
+    if (!isBoardDashboardHost(hostname)) return;
+
+    setBoardIp(hostname);
+    setUnoQIp(hostname);
+    setIsConnected(true);
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     let inflight = false;
-    const pollUsb = async () => {
+    const pollBoard = async () => {
       if (inflight) return;
       inflight = true;
       try {
-        const status = await fetchUnoQBoardWifiStatus();
+        const found = await discoverUnoQOnLan();
+        if (cancelled) return;
+
+        if (!found.found || !found.ip) {
+          setAdbUsbReady(false);
+          if (
+            typeof window === "undefined" ||
+            !isBoardDashboardHost(window.location.hostname)
+          ) {
+            setBoardIp("");
+            setWifiSsid("");
+          }
+          return;
+        }
+
+        const status = await fetchUnoQBoardWifiStatus(found.ip);
         if (cancelled) return;
         setAdbUsbReady(status.ready);
-        if (status.hostname) setNetworkHost(status.hostname);
-        if (status.wlanIp) {
-          setBoardIp((prev) => {
-            if (prev === status.wlanIp) return prev;
-            setUnoQIp(status.wlanIp!);
-            return status.wlanIp!;
-          });
-        } else if (status.boardReachable === false && typeof window !== "undefined") {
-          const cloud = !["localhost", "127.0.0.1"].includes(window.location.hostname) &&
-            !/^\d+\.\d+\.\d+\.\d+$/.test(window.location.hostname);
-          if (!cloud) setBoardIp("");
-        }
+        const detectedIp = status.wlanIp || found.ip;
+        const detectedSsid = status.wifiSsid || getUnoQWifiSsid();
+        setBoardIp(detectedIp);
+        setUnoQIp(detectedIp);
+        setWifiSsid(detectedSsid);
+        if (detectedSsid) setUnoQWifiSsid(detectedSsid);
       } finally {
         inflight = false;
       }
     };
-    void pollUsb();
-    const timer = setInterval(pollUsb, 8000);
+    void pollBoard();
+    const timer = setInterval(pollBoard, 8000);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -117,6 +137,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   const [visionStatus, setVisionStatus] = useState<VisionStatus>("idle");
   const [visionError, setVisionError] = useState("");
   const [visionMeta, setVisionMeta] = useState<VisionMeta | null>(null);
+  const autoConnectHandledRef = useRef(false);
   const autoTargetGate = useRef(new AutoTargetGate());
   const visionInput = useRef({ items: [] as TrashDetection[], status: "idle" as VisionStatus, receivedAt: 0, frame: 0 });
   const handleVisionResult = useCallback((detections: TrashDetection[], status: VisionStatus, error = "", meta?: VisionMeta) => {
@@ -193,11 +214,17 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
           setBoardIp(result.wlanIp);
           setUnoQIp(result.wlanIp);
         }
-        const refreshed = await fetchUnoQBoardWifiStatus();
+        const refreshed = await fetchUnoQBoardWifiStatus(
+          result.wlanIp || boardIp.trim()
+        );
         setAdbUsbReady(refreshed.ready);
         if (refreshed.wlanIp) {
           setBoardIp(refreshed.wlanIp);
           setUnoQIp(refreshed.wlanIp);
+        }
+        if (refreshed.wifiSsid) {
+          setWifiSsid(refreshed.wifiSsid);
+          setUnoQWifiSsid(refreshed.wifiSsid);
         }
       } else {
         appendLog("WARN", result.message);
@@ -646,27 +673,29 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       setConnectionBanner("");
 
       let targetIp = boardIp.trim();
-      const usbStatus = await fetchUnoQBoardWifiStatus();
-      setAdbUsbReady(usbStatus.ready);
-      if (usbStatus.wlanIp) {
-        targetIp = usbStatus.wlanIp;
-      } else {
-        appendLog(
-          "INFO",
-          lang === "th"
-            ? "กำลังค้นหาบอร์ดบน Wi-Fi นี้..."
-            : "Searching for the board on this Wi-Fi..."
-        );
-        const found = await discoverUnoQOnLan();
-        if (found.found && found.ip) {
-          targetIp = found.ip;
-          if (found.hostname) setNetworkHost(found.hostname);
+      const ipReady = /^\d+\.\d+\.\d+\.\d+$/.test(targetIp);
+      if (!ipReady) {
+        const usbStatus = await fetchUnoQBoardWifiStatus();
+        setAdbUsbReady(usbStatus.ready);
+        if (usbStatus.wlanIp) {
+          targetIp = usbStatus.wlanIp;
+        } else if (!isCloudDashboard()) {
           appendLog(
-            "SUCCESS",
+            "INFO",
             lang === "th"
-              ? `พบบอร์ดที่ ${targetIp} (${found.source || "scan"})`
-              : `Found board at ${targetIp} (${found.source || "scan"})`
+              ? "กำลังค้นหาบอร์ดบน Wi-Fi นี้..."
+              : "Searching for the board on this Wi-Fi..."
           );
+          const found = await discoverUnoQOnLan();
+          if (found.found && found.ip) {
+            targetIp = found.ip;
+            appendLog(
+              "SUCCESS",
+              lang === "th"
+                ? `พบบอร์ดที่ ${targetIp} (${found.source || "scan"})`
+                : `Found board at ${targetIp} (${found.source || "scan"})`
+            );
+          }
         }
       }
       if (targetIp) {
@@ -717,7 +746,10 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 : "Cancelled Arduino UNO Q port selection"
             );
           } else {
-            const failMsg = t.boardNoResponse.replace("{ip}", targetIp);
+            const failMsg =
+              typeof window !== "undefined" && isCloudDashboard()
+                ? t.cloudBoardBlocked.replace("{ip}", targetIp)
+                : t.boardNoResponse.replace("{ip}", targetIp);
             appendLog("WARN", failMsg);
             setConnectionBanner(failMsg);
             setConnectionBannerTone("error");
@@ -733,6 +765,11 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
             : `Connected to Arduino UNO Q via Wi-Fi (${result.portName || boardIp}) — Systems active`
         );
         setConnectionBanner("");
+
+        if (isCloudDashboard()) {
+          window.location.assign(mobileBoardUrl(targetIp));
+          return;
+        }
 
         // ส่งคำสั่งเริ่มต้นระบบไปยัง Arduino UNO Q
         await sendCommandToArduino("CMD:INIT");
@@ -770,13 +807,6 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         } else {
           setIsWifiStream(false);
           setCameraStream(null);
-          const camWarn =
-            lang === "th"
-              ? `ไม่พบสัญญาณกล้อง : ${camResult.error || "เสียบ Logitech C270 เข้า USB ของ UNO Q (ไม่ใช่ Mac) แล้วรอระบบตรวจซ้ำ"}`
-              : `Camera not detected : ${camResult.error || "Plug Logitech C270 into UNO Q USB (not the Mac), then wait for retry"}`;
-          appendLog("WARN", camWarn);
-          setConnectionBanner(camWarn);
-          setConnectionBannerTone("error");
         }
 
         setIsConnected(true);
@@ -809,6 +839,28 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       );
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hostname = window.location.hostname;
+
+    if (
+      autoConnectHandledRef.current ||
+      isConnected ||
+      !boardIp.trim() ||
+      !isBoardDashboardHost(hostname)
+    ) {
+      return;
+    }
+
+    const currentUrl = new URL(window.location.href);
+    autoConnectHandledRef.current = true;
+    if (currentUrl.searchParams.has("autoconnect")) {
+      currentUrl.searchParams.delete("autoconnect");
+      window.history.replaceState({}, "", currentUrl.toString());
+    }
+    void handleToggleConnect();
+  }, [boardIp, isConnected]);
 
   const handleModeChange = (newMode: OperationModeType) => {
     if (isLocked) return;
@@ -980,39 +1032,45 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       <Header lang={lang} onLanguageChange={handleLanguageChange} t={t} />
 
       <main className={styles.wrap}>
-        <div className={styles.layout}>
+        <div
+          className={`${styles.layout} ${
+            isConnected ? "" : styles.layoutDisconnected
+          }`}
+        >
           {/* คอลัมน์ซ้าย (บน Desktop) */}
-          <div className={styles.stack}>
-            <div className={styles.areaCamera}>
-              <CameraMonitor
-                t={t}
-                isConnected={cameraConnected}
-                boardConnected={isConnected}
-                stream={cameraStream}
-                isWifiStream={isWifiStream}
-                wifiStreamUrl={wifiStreamUrl}
-                detections={activeDetections}
-                onResult={handleVisionResult}
-                lang={lang}
-                enableTrashModel={enableTrashModel}
-                enableOilModel={enableOilModel}
-              />
+          {isConnected ? (
+            <div className={styles.stack}>
+              <div className={styles.areaCamera}>
+                <CameraMonitor
+                  t={t}
+                  isConnected={cameraConnected}
+                  boardConnected={isConnected}
+                  stream={cameraStream}
+                  isWifiStream={isWifiStream}
+                  wifiStreamUrl={wifiStreamUrl}
+                  detections={activeDetections}
+                  onResult={handleVisionResult}
+                  lang={lang}
+                  enableTrashModel={enableTrashModel}
+                  enableOilModel={enableOilModel}
+                />
+              </div>
+              <div className={styles.areaDetails}>
+                <DetectionDetails
+                  t={t}
+                  lang={lang}
+                  detections={activeDetections}
+                  status={visionStatus}
+                  error={visionError}
+                  meta={visionMeta}
+                  enableTrashModel={enableTrashModel}
+                  enableOilModel={enableOilModel}
+                  onToggleTrashModel={handleToggleTrashModel}
+                  onToggleOilModel={handleToggleOilModel}
+                />
+              </div>
             </div>
-            <div className={styles.areaDetails}>
-              <DetectionDetails
-                t={t}
-                lang={lang}
-                detections={activeDetections}
-                status={visionStatus}
-                error={visionError}
-                meta={visionMeta}
-                enableTrashModel={enableTrashModel}
-                enableOilModel={enableOilModel}
-                onToggleTrashModel={handleToggleTrashModel}
-                onToggleOilModel={handleToggleOilModel}
-              />
-            </div>
-          </div>
+          ) : null}
 
           {/* คอลัมน์ขวา (บน Desktop) */}
           <div className={styles.stack}>
@@ -1021,12 +1079,6 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 t={t}
                 isConnected={isConnected}
                 cameraConnected={cameraConnected}
-                cameraName={
-                  isWifiStream
-                    ? "Logitech C270"
-                    : cameraStream?.getVideoTracks()[0]?.label || "Logitech C270"
-                }
-                isWifiStream={isWifiStream}
                 isConnecting={isConnecting}
                 onToggleConnect={handleToggleConnect}
                 lang={lang}
@@ -1038,48 +1090,52 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 onWifiPasswordChange={setWifiPassword}
                 onSetupWifi={handleSetupWifi}
                 isWifiSettingUp={isWifiSettingUp}
+                showWifiSetup={isMounted && !isCloudDashboard()}
                 adbUsbReady={adbUsbReady}
-                networkHost={networkHost}
                 statusBanner={connectionBanner}
                 statusBannerTone={connectionBannerTone}
               />
             </div>
 
-            <div className={styles.areaMode}>
-              {!controlAvailable && <p role="status">กล้องและ AI พร้อมทดสอบ — ยังควบคุมมอเตอร์ไม่ได้ ต้องติดตั้งเฟิร์มแวร์ MCU และตรวจผังขาก่อน</p>}
-              <OperationMode
-                mode={mode}
-                onModeChange={handleModeChange}
-                isLocked={isLocked || !controlAvailable}
-                onToggleEmergency={handleToggleEmergency}
-                t={t}
-                onMove={handleMove}
-                autoDirection={autoDirection}
-                autoStatusText={autoStatusText}
-                collectedCount={collectedCount}
-              />
-            </div>
+            {isConnected ? (
+              <>
+                <div className={styles.areaMode}>
+                  {!controlAvailable && <p role="status">กล้องและ AI พร้อมทดสอบ — ยังควบคุมมอเตอร์ไม่ได้ ต้องติดตั้งเฟิร์มแวร์ MCU และตรวจผังขาก่อน</p>}
+                  <OperationMode
+                    mode={mode}
+                    onModeChange={handleModeChange}
+                    isLocked={isLocked || !controlAvailable}
+                    onToggleEmergency={handleToggleEmergency}
+                    t={t}
+                    onMove={handleMove}
+                    autoDirection={autoDirection}
+                    autoStatusText={autoStatusText}
+                    collectedCount={collectedCount}
+                  />
+                </div>
 
-            <div className={styles.areaOil}>
-              <OilControl
-                mode={mode}
-                isLocked={isLocked || !controlAvailable}
-                isOilRunning={isOilRunning}
-                armPosition={armPosition}
-                onSetOil={handleSetOil}
-                onSetArm={handleSetArm}
-                t={t}
-              />
-            </div>
+                <div className={styles.areaOil}>
+                  <OilControl
+                    mode={mode}
+                    isLocked={isLocked || !controlAvailable}
+                    isOilRunning={isOilRunning}
+                    armPosition={armPosition}
+                    onSetOil={handleSetOil}
+                    onSetArm={handleSetArm}
+                    t={t}
+                  />
+                </div>
 
-            <div className={styles.areaLog}>
-              <ActivityLog
-                t={t}
-                logs={logs}
-                onClearLogs={handleClearLogs}
-                lang={lang}
-              />
-            </div>
+                <div className={styles.areaLog}>
+                  <ActivityLog
+                    t={t}
+                    logs={logs}
+                    onClearLogs={handleClearLogs}
+                    lang={lang}
+                  />
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       </main>

@@ -96,6 +96,8 @@ export interface Translations {
   boardNotFoundWifi: string;
   wifiSetupOk: string;
   mobileLanHint: string;
+  openBoardOnLan: string;
+  cloudBoardBlocked: string;
 }
 
 export const strings: Record<Language, Translations> = {
@@ -189,15 +191,18 @@ export const strings: Record<Language, Translations> = {
     wifiSsidLabel: "ชื่อ Wi-Fi",
     wifiPasswordLabel: "รหัส Wi-Fi",
     wifiPasswordOptional: "เว้นว่างถ้าเครือข่ายเปิด",
-    wifiSetup: "ตั้ง Wi-Fi บนบอร์ด",
+    wifiSetup: "ตั้งค่า Wi-Fi บน UNO Q",
     wifiSetupBusy: "กำลังตั้ง Wi-Fi...",
     wifiUsbHint: "ไม่ต้องต่อสาย USB — ใช้ Wi-Fi กับบอร์ดได้",
     wifiOpenNetwork: "เครือข่ายเปิด : ไม่ต้องใส่รหัส Wi-Fi",
     boardNoResponse: "บอร์ดไม่ตอบที่ {ip} : กดเชื่อมต่อใหม่",
     boardNotFoundWifi: "ไม่พบบอร์ดบน Wi-Fi นี้ : กดเชื่อมต่อใหม่",
-    wifiSetupOk: "ตั้ง Wi-Fi บนบอร์ดแล้ว — ให้ Mac อยู่ Wi-Fi เดียวกัน แล้วกดเชื่อมต่อ",
+    wifiSetupOk: "ตั้ง Wi-Fi บน UNO Q แล้ว — ให้อุปกรณ์อยู่เครือข่าย Wi-Fi เดียวกับ UNO Q แล้วกดเชื่อมต่อได้เลย!",
     mobileLanHint:
-      "มือถือต้องอยู่ Wi-Fi เดียวกับบอร์ด — ใส่ IP บอร์ดแล้วกดเชื่อมต่อ หรือเปิดเว็บบนบอร์ดโดยตรง",
+      "บนมือถือ กดเชื่อมต่อ หรือปุ่มเหลือง แล้วจะเปิดแดชบอร์ดบนบอร์ดให้เอง",
+    openBoardOnLan: "เปิดแดชบอร์ดบนบอร์ด (Wi-Fi เดียวกัน)",
+    cloudBoardBlocked:
+      "เรียก {ip} แล้วไม่มีบอร์ดตอบบนเครือข่ายนี้ — เปิดบอร์ดและต่อ Wi-Fi เดียวกันก่อน แล้วกดเชื่อมต่อใหม่",
   },
   en: {
     subtitle: "Autonomous Robot Control System",
@@ -297,6 +302,9 @@ export const strings: Record<Language, Translations> = {
     boardNotFoundWifi: "No board on this Wi-Fi — press Connect again",
     wifiSetupOk: "Board Wi-Fi updated — join the same Wi-Fi on your Mac, then Connect",
     mobileLanHint:
-      "Phone must use the same Wi-Fi as the board — enter the board IP and connect, or open the board URL directly",
+      "On a phone, Connect or the yellow button opens the dashboard on the board.",
+    openBoardOnLan: "Open dashboard on the board (same Wi-Fi)",
+    cloudBoardBlocked:
+      "Nothing answered at {ip} on this network. Power the board, join its Wi-Fi, then press Connect again.",
   },
 };

@@ -3,8 +3,26 @@ import { lookup } from "dns/promises";
 import { promisify } from "util";
 import { resolveAdbPath } from "./adbPath";
 import { probeUnoQHealth } from "./unoqBoardProbe";
+import { deviceLanAddress } from "./unoqWifiOnDevice";
 
 const execFileAsync = promisify(execFile);
+
+async function readLocalWifiSsid(): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync(
+      "nmcli",
+      ["-t", "-f", "ACTIVE,SSID", "device", "wifi"],
+      { timeout: 2000, maxBuffer: 1024 * 64 }
+    );
+    const active = stdout
+      .split("\n")
+      .find((line) => line.startsWith("yes:"));
+    const ssid = active?.slice(4).trim();
+    return ssid || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export type UnoQAdbDevice = {
   serial: string;
@@ -113,15 +131,49 @@ export async function discoverBoardOnLan(): Promise<{ ip?: string; hostname?: st
 export async function readUnoQLanStatus(): Promise<
   UnoQWifiStatus & { boardReachable?: boolean }
 > {
+  const self = deviceLanAddress();
+  if (self) {
+    const wifiSsid = await readLocalWifiSsid();
+    return {
+      adbPath: null,
+      devices: [],
+      ready: false,
+      wlanIp: self,
+      wifiSsid,
+      hostname: "KPhiraphat.local",
+      boardReachable: true,
+    };
+  }
+
   const lan = await discoverBoardOnLan();
-  const boardReachable = Boolean(lan.ip);
+  if (lan.ip) {
+    return {
+      adbPath: null,
+      devices: [],
+      ready: false,
+      wlanIp: lan.ip,
+      hostname: lan.hostname,
+      boardReachable: true,
+    };
+  }
+
+  for (const ip of ["192.168.100.15"]) {
+    if (await probeUnoQHealth(ip, 1000)) {
+      return {
+        adbPath: null,
+        devices: [],
+        ready: false,
+        wlanIp: ip,
+        boardReachable: true,
+      };
+    }
+  }
+
   return {
     adbPath: null,
     devices: [],
     ready: false,
-    wlanIp: boardReachable ? lan.ip : undefined,
-    hostname: lan.hostname,
-    boardReachable,
+    boardReachable: false,
   };
 }
 

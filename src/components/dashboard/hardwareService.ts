@@ -6,6 +6,7 @@
 import {
   boardArduinoApi,
   boardVisionApi,
+  DEFAULT_BOARD_IP,
   discoverBoardFromBrowser,
   isCloudDashboard,
   probeBoardFromBrowser,
@@ -31,7 +32,9 @@ export function getUnoQIp(): string {
       return window.location.hostname;
     }
     const saved = localStorage.getItem("ribo_unoq_ip") || "";
-    return isStaleUnoQIp(saved) ? "" : saved;
+    if (saved && !isStaleUnoQIp(saved)) return saved;
+    if (isCloudDashboard()) return DEFAULT_BOARD_IP;
+    return "";
   }
   return "";
 }
@@ -77,7 +80,7 @@ export async function discoverUnoQOnLan(): Promise<{
   try {
     const resp = await fetch("/api/arduino/discover", {
       cache: "no-store",
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(20000),
     });
     return await resp.json();
   } catch {
@@ -85,11 +88,16 @@ export async function discoverUnoQOnLan(): Promise<{
   }
 }
 
-export async function fetchUnoQBoardWifiStatus(): Promise<UnoQBoardWifiStatus> {
+export async function fetchUnoQBoardWifiStatus(
+  boardIp?: string
+): Promise<UnoQBoardWifiStatus> {
   try {
-    const resp = await fetch("/api/arduino/wifi", {
+    const ip = boardIp?.trim() || "";
+    const url = ip ? boardArduinoApi(ip, "wifi") : "/api/arduino/wifi";
+    const resp = await fetch(url, {
       cache: "no-store",
-      signal: AbortSignal.timeout(1200),
+      signal: AbortSignal.timeout(4000),
+      mode: "cors",
     });
     return (await resp.json()) as UnoQBoardWifiStatus;
   } catch {
@@ -154,11 +162,11 @@ export async function connectArduinoUnoQ(
 
   try {
     let data: { connected?: boolean } = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 300));
       const resp = await fetch(boardArduinoApi(targetIp, "status", { ip: targetIp }), {
         cache: "no-store",
-        signal: AbortSignal.timeout(2800),
+        signal: AbortSignal.timeout(2000),
         mode: "cors",
       });
       data = await resp.json().catch(() => ({}));
@@ -435,9 +443,7 @@ export async function checkUnoQCameraStatus(targetIp?: string): Promise<{
     });
     if (resp.ok) {
       const data = await resp.json();
-      const streamUrl =
-        data.streamUrl ||
-        boardArduinoApi(ip, "stream", { ip });
+      const streamUrl = boardArduinoApi(ip, "stream", { ip });
       return {
         active: Boolean(data.active),
         deviceName: data.deviceName || "Logitech C270",

@@ -1,5 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors, withCors } from "@/lib/cors";
 import { unoqApiUrl } from "@/lib/unoqEndpoint";
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -21,14 +26,19 @@ export async function GET(request: NextRequest) {
       clearTimeout(timeout);
 
       if (resp.ok && resp.body && resp.headers.get("Content-Type")?.includes("multipart/x-mixed-replace")) {
-        return new Response(resp.body, {
-          headers: {
-            "Content-Type": resp.headers.get("Content-Type") || "multipart/x-mixed-replace; boundary=frame",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-        });
+        return withCors(
+          request,
+          new Response(resp.body, {
+            headers: {
+              "Content-Type":
+                resp.headers.get("Content-Type") ||
+                "multipart/x-mixed-replace; boundary=frame",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+              Expires: "0",
+            },
+          })
+        );
       }
       await resp.body?.cancel();
     } catch {} finally {
@@ -36,7 +46,8 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json(
+  return jsonWithCors(
+    request,
     { error: "No video stream available from Arduino UNO Q" },
     { status: 503 }
   );

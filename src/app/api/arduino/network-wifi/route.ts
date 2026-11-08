@@ -1,18 +1,23 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
 import { isSameRequestOrigin } from "@/lib/unoqEndpoint";
 import { discoverBoardOnLan } from "@/lib/unoqAdb";
 import { pushWifiToBoard } from "@/lib/pushWifiToBoard";
 
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
+
 export async function POST(request: NextRequest) {
   if (!isSameRequestOrigin(request)) {
-    return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
+    return jsonWithCors(request, { success: false, message: "Forbidden" }, { status: 403 });
   }
 
   let body: { ssid?: string; password?: string; ip?: string; boardIp?: string } = {};
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ success: false, message: "Invalid JSON" }, { status: 400 });
+    return jsonWithCors(request, { success: false, message: "Invalid JSON" }, { status: 400 });
   }
 
   const ssid = String(body.ssid || "").trim();
@@ -21,12 +26,13 @@ export async function POST(request: NextRequest) {
     String(body.boardIp || body.ip || "").trim() || (await discoverBoardOnLan()).ip || "";
 
   if (!requestedIp) {
-    return NextResponse.json(
+    return jsonWithCors(
+      request,
       { success: false, message: "ต้องระบุ IP บอร์ดหรือค้นหาบอร์ดก่อน" },
       { status: 400 }
     );
   }
 
   const result = await pushWifiToBoard(ssid, password, requestedIp);
-  return NextResponse.json(result, { status: result.success ? 200 : 502 });
+  return jsonWithCors(request, result, { status: result.success ? 200 : 502 });
 }

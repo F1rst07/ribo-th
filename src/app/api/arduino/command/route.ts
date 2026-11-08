@@ -1,23 +1,27 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
 import { isSameRequestOrigin, unoqApiUrl } from "@/lib/unoqEndpoint";
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
 
 export async function POST(request: NextRequest) {
   if (!isSameRequestOrigin(request)) {
-    return NextResponse.json({ success: false, error: "Invalid origin" }, { status: 403 });
+    return jsonWithCors(
+      request,
+      { success: false, error: "Invalid origin" },
+      { status: 403 }
+    );
   }
   try {
     const body = await request.json().catch(() => ({}));
     const command = body.command || "";
     const requestedIp = (body.ip || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3").trim();
 
-    // Priority targets:
-    // 1. Target Wi-Fi IP on port 8000
-    // 2. Local ADB port forward 8001 / 8000 if running locally
-    const targetUrls = [
-      unoqApiUrl(requestedIp, "command", "/api/command"),
-    ];
+    const targetUrls = [unoqApiUrl(requestedIp, "command", "/api/command")];
 
-    let lastError: any = null;
+    let lastError: unknown = null;
 
     for (const url of targetUrls) {
       try {
@@ -38,33 +42,36 @@ export async function POST(request: NextRequest) {
         clearTimeout(timeoutId);
 
         if (!resp.ok) {
-          return NextResponse.json(await resp.json(), { status: resp.status });
+          return jsonWithCors(request, await resp.json(), { status: resp.status });
         }
 
-        if (resp.ok) {
-          const data = await resp.json();
-          return NextResponse.json({
-            success: true,
-            targetUrl: url,
-            ...data,
-          });
-        }
+        const data = await resp.json();
+        return jsonWithCors(request, {
+          success: true,
+          targetUrl: url,
+          ...data,
+        });
       } catch (err) {
         lastError = err;
       }
     }
 
-    return NextResponse.json(
+    return jsonWithCors(
+      request,
       {
         success: false,
         error: `Could not send command to Arduino UNO Q at ${requestedIp}:8000`,
-        details: lastError?.message,
+        details: lastError instanceof Error ? lastError.message : undefined,
       },
       { status: 502 }
     );
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || "Internal server error" },
+  } catch (err: unknown) {
+    return jsonWithCors(
+      request,
+      {
+        success: false,
+        error: err instanceof Error ? err.message : "Internal server error",
+      },
       { status: 500 }
     );
   }

@@ -1,5 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors, withCors } from "@/lib/cors";
 import { unoqApiUrl } from "@/lib/unoqEndpoint";
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -21,19 +26,23 @@ export async function GET(request: NextRequest) {
       });
 
       if (resp.ok && resp.body) {
-        return new Response(resp.body, {
-          headers: {
-            "Content-Type": "image/jpeg",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
-          },
-        });
+        return withCors(
+          request,
+          new Response(resp.body, {
+            headers: {
+              "Content-Type": "image/jpeg",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+              Expires: "0",
+            },
+          })
+        );
       }
     } catch {}
   }
 
-  return NextResponse.json(
+  return jsonWithCors(
+    request,
     { error: "No snapshot available from Arduino UNO Q" },
     { status: 503 }
   );

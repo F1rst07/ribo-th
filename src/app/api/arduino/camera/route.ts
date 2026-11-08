@@ -1,5 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
 import { unoqApiUrl } from "@/lib/unoqEndpoint";
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflightResponse(request);
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -24,7 +29,7 @@ export async function GET(request: NextRequest) {
       if (resp.ok) {
         const data = await resp.json();
         if (typeof data.active !== "boolean") continue;
-        return NextResponse.json({
+        return jsonWithCors(request, {
           ...data,
           streamUrl: `/api/arduino/stream?ip=${encodeURIComponent(requestedIp)}`,
         });
@@ -32,7 +37,8 @@ export async function GET(request: NextRequest) {
     } catch {}
   }
 
-  return NextResponse.json(
+  return jsonWithCors(
+    request,
     {
       active: false,
       deviceName: "Logitech C270",
