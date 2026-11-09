@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { OctagonAlert, RotateCcw } from "lucide-react";
+import { OctagonAlert, RotateCw } from "lucide-react";
 import { Translations } from "./translations";
 import styles from "./dashboard.module.css";
 
@@ -29,7 +29,7 @@ export const EmergencyStop: React.FC<EmergencyStopProps> = ({
       >
         {isLocked ? (
           <>
-            <RotateCcw size={16} />
+            <RotateCw size={16} />
             <span>{t.reset}</span>
           </>
         ) : (

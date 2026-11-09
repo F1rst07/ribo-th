@@ -31,7 +31,18 @@ import {
 } from "./hardwareService";
 import styles from "./dashboard.module.css";
 import { AutoTargetGate } from "./autoTargetGate";
-import { isCloudDashboard, mobileBoardUrl } from "@/lib/clientBoardApi";
+import {
+  BOARD_MDNS_HOST,
+  CLOUD_LAUNCHER_URL,
+  DEFAULT_BOARD_IP,
+  boardDisplayHost,
+  getBrowserLanIPv4s,
+  isCloudDashboard,
+  isIpv4,
+  openBoardDashboard,
+  resolveBoardIp,
+  sameLan,
+} from "@/lib/clientBoardApi";
 
 const getFormattedTime = () =>
   new Date().toLocaleTimeString("en-GB", { hour12: false });
@@ -55,7 +66,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   const t = strings[isMounted ? lang : "th"];
 
   // สถานะการเชื่อมต่อฮาร์ดแวร์จริง (Arduino UNO Q & กล้อง Logitech C270)
-  const [boardIp, setBoardIp] = useState<string>("");
+  const [boardIp, setBoardIp] = useState<string>(DEFAULT_BOARD_IP);
   const [wifiSsid, setWifiSsid] = useState<string>("");
   const [wifiPassword, setWifiPassword] = useState<string>("");
   const [adbUsbReady, setAdbUsbReady] = useState(false);
@@ -66,18 +77,34 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   >("info");
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [deviceLanIp, setDeviceLanIp] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hostname = window.location.hostname;
-    if (!isBoardDashboardHost(hostname)) return;
-
-    setBoardIp(hostname);
-    setUnoQIp(hostname);
-    setIsConnected(true);
+    if (isBoardDashboardHost(hostname)) {
+      setBoardIp(BOARD_MDNS_HOST);
+      setUnoQIp(BOARD_MDNS_HOST);
+      setIsConnected(true);
+      return;
+    }
+    const saved = getUnoQIp() || DEFAULT_BOARD_IP;
+    const ssid = getUnoQWifiSsid();
+    setBoardIp(saved);
+    setUnoQIp(saved);
+    setWifiSsid(ssid);
+    void getBrowserLanIPv4s().then((ips) => {
+      setDeviceLanIp(ips[0] || "");
+    });
   }, []);
 
   useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      (isCloudDashboard() || isBoardDashboardHost(window.location.hostname))
+    ) {
+      return;
+    }
     let cancelled = false;
     let inflight = false;
     const pollBoard = async () => {
@@ -89,13 +116,6 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
 
         if (!found.found || !found.ip) {
           setAdbUsbReady(false);
-          if (
-            typeof window === "undefined" ||
-            !isBoardDashboardHost(window.location.hostname)
-          ) {
-            setBoardIp("");
-            setWifiSsid("");
-          }
           return;
         }
 
@@ -104,8 +124,8 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         setAdbUsbReady(status.ready);
         const detectedIp = status.wlanIp || found.ip;
         const detectedSsid = status.wifiSsid || getUnoQWifiSsid();
-        setBoardIp(detectedIp);
-        setUnoQIp(detectedIp);
+        setBoardIp(boardDisplayHost(detectedIp));
+        setUnoQIp(boardDisplayHost(detectedIp));
         setWifiSsid(detectedSsid);
         if (detectedSsid) setUnoQWifiSsid(detectedSsid);
       } finally {
@@ -121,8 +141,9 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   }, []);
 
   const handleIpChange = (newIp: string) => {
-    setBoardIp(newIp);
-    setUnoQIp(newIp);
+    const host = boardDisplayHost(newIp);
+    setBoardIp(host);
+    setUnoQIp(host);
   };
 
   const handleWifiSsidChange = (ssid: string) => {
@@ -211,16 +232,16 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         setConnectionBanner(t.wifiSetupOk);
         setConnectionBannerTone("info");
         if (result.wlanIp) {
-          setBoardIp(result.wlanIp);
-          setUnoQIp(result.wlanIp);
+          setBoardIp(boardDisplayHost(result.wlanIp));
+          setUnoQIp(boardDisplayHost(result.wlanIp));
         }
         const refreshed = await fetchUnoQBoardWifiStatus(
           result.wlanIp || boardIp.trim()
         );
         setAdbUsbReady(refreshed.ready);
         if (refreshed.wlanIp) {
-          setBoardIp(refreshed.wlanIp);
-          setUnoQIp(refreshed.wlanIp);
+          setBoardIp(boardDisplayHost(refreshed.wlanIp));
+          setUnoQIp(boardDisplayHost(refreshed.wlanIp));
         }
         if (refreshed.wifiSsid) {
           setWifiSsid(refreshed.wifiSsid);
@@ -364,6 +385,27 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
     const currentLang: Language = savedLang === "th" || savedLang === "en" ? savedLang : "th";
     if (savedLang) {
       setLang(savedLang);
+    }
+
+    const wifiResult = new URLSearchParams(window.location.search).get("wifi");
+    if (wifiResult === "ok") {
+      setConnectionBanner(
+        strings[currentLang].wifiSetupOk
+      );
+      setConnectionBannerTone("info");
+      const cleaned = new URL(window.location.href);
+      cleaned.searchParams.delete("wifi");
+      window.history.replaceState({}, "", cleaned.toString());
+    } else if (wifiResult === "err") {
+      setConnectionBanner(
+        currentLang === "th"
+          ? "บันทึก Wi-Fi บนบอร์ดไม่สำเร็จ — ตรวจชื่อและรหัสแล้วลองใหม่"
+          : "Could not save Wi-Fi on the board — check the name and password"
+      );
+      setConnectionBannerTone("error");
+      const cleaned = new URL(window.location.href);
+      cleaned.searchParams.delete("wifi");
+      window.history.replaceState({}, "", cleaned.toString());
     }
 
     const now = Date.now();
@@ -514,7 +556,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       };
 
       const vision = visionInput.current;
-      if (vision.status !== "ready" || now - vision.receivedAt > 500) {
+      if (vision.status !== "ready" || now - vision.receivedAt > 1500) {
         sendAutoMove(null, "CMD:MOVE:STOP", "รอผลภาพใหม่");
         navStateRef.current = "SEARCHING";
         setAutoStatusText(t.autoNavSearching);
@@ -656,6 +698,40 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
     };
   }, [mode, isConnected, isLocked, controlAvailable, lang, t, appendLog]);
 
+  const lanMismatchMessage = useCallback(
+    (board: string, lan: string) =>
+      t.lanMismatch
+        .replace("{lan}", lan)
+        .replace("{board}", board)
+        .replace("{ssid}", wifiSsid.trim() || "Wi-Fi ของบอร์ด"),
+    [t, wifiSsid]
+  );
+
+  const canOpenBoardOnLan = useCallback(
+    (rawIp: string) => {
+      const ip = resolveBoardIp(rawIp);
+      if (!isIpv4(ip)) return true;
+      if (deviceLanIp && !sameLan(deviceLanIp, ip)) {
+        setConnectionBanner(lanMismatchMessage(ip, deviceLanIp));
+        setConnectionBannerTone("error");
+        return false;
+      }
+      return true;
+    },
+    [deviceLanIp, lanMismatchMessage]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isCloudDashboard() || !deviceLanIp) return;
+    const ip = resolveBoardIp(boardIp);
+    if (isIpv4(ip) && !sameLan(deviceLanIp, ip)) {
+      setConnectionBanner(lanMismatchMessage(ip, deviceLanIp));
+      setConnectionBannerTone("error");
+      return;
+    }
+    setConnectionBanner("");
+  }, [boardIp, deviceLanIp, lanMismatchMessage]);
+
   const handleLanguageChange = (newLang: Language) => {
     setLang(newLang);
     if (typeof window !== "undefined") {
@@ -669,6 +745,11 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
     if (isConnecting) return;
 
     if (!isConnected) {
+      if (isCloudDashboard()) {
+        if (!canOpenBoardOnLan(boardIp)) return;
+        openBoardDashboard(boardIp);
+        return;
+      }
       setIsConnecting(true);
       setConnectionBanner("");
 
@@ -699,8 +780,8 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         }
       }
       if (targetIp) {
-        setBoardIp(targetIp);
-        setUnoQIp(targetIp);
+        setBoardIp(boardDisplayHost(targetIp));
+        setUnoQIp(boardDisplayHost(targetIp));
       } else {
         const offlineMsg = t.boardNotFoundWifi;
         appendLog("WARN", offlineMsg);
@@ -767,7 +848,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         setConnectionBanner("");
 
         if (isCloudDashboard()) {
-          window.location.assign(mobileBoardUrl(targetIp));
+          openBoardDashboard(targetIp);
           return;
         }
 
@@ -821,10 +902,25 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
         setIsConnecting(false);
       }
     } else {
-      // ตัดการเชื่อมต่อ
-      await sendCommandToArduino("CMD:DISCONNECT");
-      await disconnectArduinoUnoQ();
+      autoConnectHandledRef.current = true;
+      try {
+        await sendCommandToArduino("CMD:DISCONNECT");
+      } catch {
+        /* still leave the board page */
+      }
+      try {
+        await disconnectArduinoUnoQ();
+      } catch {
+        /* still leave the board page */
+      }
       disconnectCameraStream();
+      if (
+        typeof window !== "undefined" &&
+        isBoardDashboardHost(window.location.hostname)
+      ) {
+        window.location.replace(CLOUD_LAUNCHER_URL);
+        return;
+      }
       setCameraStream(null);
       setIsWifiStream(false);
       setIsConnected(false);
@@ -1028,10 +1124,18 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   );
 
   return (
-    <div className={styles.container}>
+    <div
+      className={`${styles.container} ${
+        !isConnected ? styles.containerLauncher : ""
+      }`}
+    >
       <Header lang={lang} onLanguageChange={handleLanguageChange} t={t} />
 
-      <main className={styles.wrap}>
+      <main
+        className={`${styles.wrap} ${
+          !isConnected ? styles.wrapLauncher : ""
+        }`}
+      >
         <div
           className={`${styles.layout} ${
             isConnected ? "" : styles.layoutDisconnected
@@ -1090,7 +1194,13 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
                 onWifiPasswordChange={setWifiPassword}
                 onSetupWifi={handleSetupWifi}
                 isWifiSettingUp={isWifiSettingUp}
-                showWifiSetup={isMounted && !isCloudDashboard()}
+                showWifiSetup={true}
+                cloudLauncher={isCloudDashboard()}
+                onOpenBoard={() => {
+                  if (!canOpenBoardOnLan(boardIp)) return false;
+                  openBoardDashboard(boardIp);
+                  return true;
+                }}
                 adbUsbReady={adbUsbReady}
                 statusBanner={connectionBanner}
                 statusBannerTone={connectionBannerTone}

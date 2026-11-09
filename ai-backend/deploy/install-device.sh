@@ -23,4 +23,7 @@ sudo install -m 644 "$release/ai-backend/deploy/ribo-dashboard.service" /etc/sys
 sudo ln -sfn /etc/systemd/system/ribo-ai-device.service /etc/systemd/system/ribo-vision.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now ribo-ai-device.service ribo-dashboard.service
+if [ -x "$release/ai-backend/deploy/setup-hostname.sh" ]; then
+  bash "$release/ai-backend/deploy/setup-hostname.sh" ribo-th || true
+fi
 printf 'Backup: %s\n' "$backup"

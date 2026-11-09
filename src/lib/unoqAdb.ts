@@ -83,7 +83,7 @@ export async function listUnoQAdbDevices(): Promise<{
   }
 }
 
-const LAN_NAMES = ["KPhiraphat.local", "kphiraphat.local"];
+const LAN_NAMES = ["ribo-th.local", "arduino.local", "KPhiraphat.local", "kphiraphat.local"];
 let lanCache: { ip: string; hostname: string; at: number } | null = null;
 
 async function lookupLanName(hostname: string): Promise<{ ip: string; hostname: string }> {
@@ -140,7 +140,7 @@ export async function readUnoQLanStatus(): Promise<
       ready: false,
       wlanIp: self,
       wifiSsid,
-      hostname: "KPhiraphat.local",
+      hostname: "ribo-th.local",
       boardReachable: true,
     };
   }
@@ -157,7 +157,7 @@ export async function readUnoQLanStatus(): Promise<
     };
   }
 
-  for (const ip of ["192.168.100.15"]) {
+  for (const ip of ["ribo-th.local", "192.168.100.15"]) {
     if (await probeUnoQHealth(ip, 1000)) {
       return {
         adbPath: null,

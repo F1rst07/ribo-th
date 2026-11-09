@@ -6,6 +6,7 @@ export function allowedCorsOrigin(origin: string | null): string | null {
   if (origin === "https://ribo-th.vercel.app") return origin;
   if (/^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) return origin;
   if (/^http:\/\/\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(origin)) return origin;
+  if (/^http:\/\/[\w.-]+\.local(:\d+)?$/.test(origin)) return origin;
   return null;
 }
 

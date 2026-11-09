@@ -225,9 +225,10 @@ export const DetectionDetails: React.FC<DetectionDetailsProps> = ({
                 const target = trashItems[0];
                 const px = target?.pixelX ?? 0;
                 const py = target?.pixelY ?? 0;
+                const name = isThai ? "ขยะ" : "Trash";
                 return isThai
-                  ? `ขยะ (${px}, ${py}) [พบคราบน้ำมันร่วมด้วย]`
-                  : `Trash (${px}, ${py}) [Oil also detected]`;
+                  ? `${name} (${px}, ${py}) [พบคราบน้ำมันร่วมด้วย]`
+                  : `${name} (${px}, ${py}) [Oil also detected]`;
               })()
             : detections.length > 0
             ? (() => {

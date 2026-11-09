@@ -15,10 +15,17 @@ from typing import Any
 
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BACKEND_DIR.parent
-DEFAULT_MODEL = (
-    PROJECT_DIR / "models" / "trash_new.pt"
-    if (PROJECT_DIR / "models" / "trash_new.pt").is_file()
-    else PROJECT_DIR / "models" / "trash.pt"
+def _first_existing(*paths: Path) -> Path | None:
+    for path in paths:
+        if path.is_file():
+            return path
+    return None
+
+
+DEFAULT_MODEL = _first_existing(
+    PROJECT_DIR / "models" / "trash_new.pt",
+    PROJECT_DIR / "models" / "trash.pt",
+    PROJECT_DIR / "models" / "trash_new.onnx",
 )
 # โมเดลตรวจจับคราบน้ำมัน YOLO11n-seg ใหม่ (Surface Water Floating Waste & Domestic Cooking Oil)
 DEFAULT_NAFTA_MODEL: Path | None = None
@@ -35,6 +42,7 @@ os.environ.setdefault("ULTRALYTICS_AUTOINSTALL", "0")
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
+cv2.setNumThreads(1)
 if os.environ.get("RIBO_RUNTIME") == "onnx":
     from onnx_runtime_adapter import YOLO  # noqa: E402
 else:
@@ -50,7 +58,32 @@ OIL_CLASS_MAP: dict[str, str] = {
 
 
 TRASH_CLASS_MAP: dict[str, str] = {
-    # TACO Dataset Classes (fabiocigaina/TACO-yolo11s)
+    # อุตสาหกรรม — พลาสติก / แก้ว / กระดาษ
+    "plastic water bottle": "ขวดน้ำดื่มพลาสติก (Plastic water bottle)",
+    "clear glass bottle": "ขวดแก้วใส / ขวดชูกำลัง (Clear glass / energy drink bottle)",
+    "energy drink bottle": "ขวดเครื่องดื่มชูกำลัง (Energy drink bottle)",
+    "cardboard box": "กล่องลัง (Cardboard box)",
+    "newspaper": "กระดาษหนังสือพิมพ์ (Newspaper)",
+    "notebook": "สมุด / กระดาษ A4 (Notebook / A4 paper)",
+    "a4 paper": "กระดาษ A4 / สมุด (A4 paper / notebook)",
+    # โลหะ / อะลูมิเนียม
+    "soda can": "กระป๋องน้ำอัดลม (Soda can)",
+    "condensed milk can": "กระป๋องนมข้นหวาน (Condensed milk can)",
+    "scrap metal": "เศษเหล็ก (Scrap metal)",
+    # อิเล็กทรอนิกส์
+    "battery": "ถ่านไฟฉาย / แบตเตอรี่มือถือ (Battery)",
+    "phone battery": "แบตเตอรี่มือถือ (Phone battery)",
+    "charging cable": "สายชาร์จเก่า (Charging cable)",
+    # สารเคมี / ไวไฟ
+    "fluorescent tube": "หลอดไฟฟลูออเรสเซนต์ (Fluorescent tube)",
+    "spray can": "กระป๋องสเปรย์ (Spray can)",
+    "toilet cleaner bottle": "ขวดน้ำยาล้างห้องน้ำ (Toilet cleaner bottle)",
+    # ขยะติดเชื้อ
+    "face mask": "หน้ากากอนามัย (Face mask)",
+    "atk test kit": "ATK (ATK test kit)",
+    # ขยะเรือ / รายการเดิมที่ยังเจอบ่อย
+    "plastic bag": "ถุงพลาสติก (Plastic bag)",
+    "styrofoam": "โฟม (Styrofoam)",
     "plastic bag & wrapper": "ถุงพลาสติกและซองขนม (Plastic bag & wrapper)",
     "cigarette": "ก้นบุหรี่ (Cigarette)",
     "bottle": "ขวดพลาสติก / ขวดน้ำ (Bottle)",
@@ -60,36 +93,40 @@ TRASH_CLASS_MAP: dict[str, str] = {
     "carton": "กล่องนม / กล่องเครื่องดื่ม (Carton)",
     "cup": "แก้วน้ำ (Cup)",
     "other": "ขยะอื่น ๆ (Other)",
-    # หมวดหมู่เสริมสำหรับกล่องนมและบรรจุภัณฑ์เครื่องดื่ม
     "uht-box": "กล่องนม (Milk Carton)",
     "uht_box": "กล่องนม (Milk Carton)",
     "drink carton": "กล่องนม / กล่องเครื่องดื่ม (Carton)",
-    # ถุงพลาสติกและพลาสติกแบบใช้ครั้งเดียว
     "single-use-plastic": "ถุงพลาสติก (Plastic Bag)",
     "single_use_plastic": "ถุงพลาสติก (Plastic Bag)",
     "single-layer plastic": "ถุงพลาสติก (Plastic Bag)",
-    "plastic bag": "ถุงพลาสติก (Plastic Bag)",
     "handbag": "ถุงพลาสติก (Plastic Bag)",
     "backpack": "ถุงพลาสติก (Plastic Bag)",
-    # ขวดน้ำและขวดนม
     "pet bottle": "ขวดน้ำพลาสติก (PET Bottle)",
     "hdpe plastic": "ขวดนม / พลาสติกทึบ (HDPE Bottle)",
     "multi-layer plastic": "ซองขนม / ซองพลาสติก (Snack Wrapper)",
     "squeeze-tube": "หลอดพลาสติก (Plastic Tube)",
-    # แก้ว กระป๋อง และภาชนะ
     "bowl": "ภาชนะ / โฟม (Container)",
-    # กล่องและกระดาษ
     "box": "กล่องกระดาษ (Box)",
-    "cardboard": "กล่องกระดาษ (Cardboard)",
+    "cardboard": "กล่องลัง (Cardboard box)",
     "book": "กล่องกระดาษ (Carton)",
-    "paper": "กระดาษ (Paper)",
-    "plastic": "พลาสติก (Plastic)",
-    "metal": "โลหะ (Metal)",
+    "paper": "กระดาษ / หนังสือพิมพ์ / A4 (Paper / newspaper / A4)",
+    "plastic": "พลาสติก / ขวดน้ำดื่ม (Plastic / water bottle)",
+    "metal": "โลหะ / กระป๋องน้ำอัดลม / กระป๋องนม (Metal / soda or milk can)",
     "glass": "ขวดแก้ว (Glass)",
     "litter": "ขยะ (Litter)",
     "trash": "ขยะ (Trash)",
     "waste": "ขยะ (Waste)",
+    "biological": "ขยะอินทรีย์ (Biological)",
+    "brown-glass": "ขวดแก้วน้ำตาล (Brown glass)",
+    "clothes": "เสื้อผ้า (Clothes)",
+    "green-glass": "ขวดแก้วเขียว (Green glass)",
+    "shoes": "รองเท้า (Shoes)",
+    "white-glass": "ขวดแก้วใส / ขวดชูกำลัง (Clear glass / energy drink)",
 }
+
+
+def trash_display_names(raw_name: str) -> tuple[str, str]:
+    return "ขยะ", "Trash"
 
 
 class LockedTarget:
@@ -116,10 +153,31 @@ class LockedTarget:
         self.hits = 1
         self.misses = 0
         self.confirmation_hits = max(1, confirmation_hits)
+        self.hist: np.ndarray | None = None
+        self.keep_layers: tuple[str, ...] = ("detect",)
 
     @property
     def is_confirmed(self) -> bool:
         return self.hits >= self.confirmation_hits
+
+    def remember_appearance(self, image: np.ndarray) -> None:
+        hist = crop_hsv_hist(image, self.box)
+        if hist is None:
+            return
+        if self.hist is None:
+            self.hist = hist
+        else:
+            self.hist = 0.62 * hist + 0.38 * self.hist
+
+    def predicted_box(self, timestamp: float, img_w: int, img_h: int) -> list[float]:
+        dt = max(0.01, min(0.40, timestamp - self.last_seen))
+        dx = self.velocity[0] * dt
+        dy = self.velocity[1] * dt
+        return clamp_box(
+            [self.box[0] + dx, self.box[1] + dy, self.box[2] + dx, self.box[3] + dy],
+            img_w,
+            img_h,
+        )
 
     def update(
         self,
@@ -127,9 +185,12 @@ class LockedTarget:
         conf: float,
         timestamp: float,
         alpha: float = 0.50,
+        image: np.ndarray | None = None,
+        layers: tuple[str, ...] = ("detect", "motion"),
     ) -> None:
         self.hits += 1
         self.misses = 0
+        self.keep_layers = layers
         dt = max(0.01, min(0.40, timestamp - self.last_seen))
         old_cx = (self.box[0] + self.box[2]) / 2.0
         old_cy = (self.box[1] + self.box[3]) / 2.0
@@ -141,14 +202,18 @@ class LockedTarget:
         inst_vy = (new_cy - old_cy) / dt
         self.velocity[0] = 0.60 * inst_vx + 0.40 * self.velocity[0]
         self.velocity[1] = 0.60 * inst_vy + 0.40 * self.velocity[1]
-        self.velocity[0] = max(-400.0, min(400.0, self.velocity[0]))
-        self.velocity[1] = max(-300.0, min(300.0, self.velocity[1]))
+        self.velocity[0] = max(-700.0, min(700.0, self.velocity[0]))
+        self.velocity[1] = max(-520.0, min(520.0, self.velocity[1]))
 
         # ปรับตำแหน่งกรอบด้วย EMA (Exponential Moving Average)
         # หากมีการเคลื่อนไหวเร็ว ให้ตอบสนองไว (alpha สูง) เพื่อไม่ให้กรอบลอยตามหลัง
         dx = abs(new_cx - old_cx)
         dy = abs(new_cy - old_cy)
         effective_alpha = 0.85 if (dx > 20.0 or dy > 20.0) else alpha
+        old_area = max(1.0, (self.box[2] - self.box[0]) * (self.box[3] - self.box[1]))
+        new_area = max(1.0, (box[2] - box[0]) * (box[3] - box[1]))
+        if new_area < 0.92 * old_area:
+            effective_alpha = max(effective_alpha, 0.84)
 
         self.box = [
             effective_alpha * new_v + (1.0 - effective_alpha) * old_v
@@ -156,6 +221,12 @@ class LockedTarget:
         ]
         self.confidence = 0.70 * conf + 0.30 * self.confidence
         self.last_seen = timestamp
+        if image is not None:
+            tight = tighten_object_box(image, self.box)
+            tight_area = max(1.0, (tight[2] - tight[0]) * (tight[3] - tight[1]))
+            if 0.50 * old_area <= tight_area <= old_area:
+                self.box = tight
+            self.remember_appearance(image)
 
 
 class LockedOilTrack:
@@ -224,6 +295,39 @@ class LockedOilTrack:
         return self.hits >= self.confirmation_hits
 
 
+def clamp_box(box: list[float], img_w: int, img_h: int) -> list[float]:
+    left, top, right, bottom = (float(v) for v in box)
+    width = max(2.0, right - left)
+    height = max(2.0, bottom - top)
+    left = min(max(0.0, left), max(0.0, img_w - width))
+    top = min(max(0.0, top), max(0.0, img_h - height))
+    return [left, top, min(float(img_w), left + width), min(float(img_h), top + height)]
+
+
+def crop_hsv_hist(image: np.ndarray, box: list[float]) -> np.ndarray | None:
+    img_h, img_w = image.shape[:2]
+    left = int(max(0, box[0]))
+    top = int(max(0, box[1]))
+    right = int(min(img_w, box[2]))
+    bottom = int(min(img_h, box[3]))
+    if right - left < 8 or bottom - top < 8:
+        return None
+    crop = image[top:bottom, left:right]
+    if crop.size == 0:
+        return None
+    small = cv2.resize(crop, (32, 32), interpolation=cv2.INTER_AREA)
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+    hist = cv2.calcHist([hsv], [0, 1], None, [12, 8], [0, 180, 0, 256])
+    cv2.normalize(hist, hist)
+    return hist
+
+
+def hist_corr(hist_a: np.ndarray | None, hist_b: np.ndarray | None) -> float:
+    if hist_a is None or hist_b is None:
+        return 0.0
+    return float(np.clip(cv2.compareHist(hist_a, hist_b, cv2.HISTCMP_CORREL), -1.0, 1.0))
+
+
 def box_overlap_metrics(box_a: list[float], box_b: list[float]) -> tuple[float, float]:
     x_a = max(box_a[0], box_b[0])
     y_a = max(box_a[1], box_b[1])
@@ -239,15 +343,29 @@ def box_overlap_metrics(box_a: list[float], box_b: list[float]) -> tuple[float, 
     return iou, ios
 
 
+def lock_class_compatible(target_name: str, det_name: str) -> bool:
+    """กระป๋องโลหะกับซองพลาสติกคนละชิ้น — trash ที่กระป๋องกะพริบยังถือว่าชิ้นเดิม"""
+    target = (target_name or "").lower().strip()
+    det = (det_name or "").lower().strip()
+    if target == det:
+        return True
+    hard = {"metal", "glass"}
+    wrapper = {"plastic", "paper"}
+    if target in hard and det in wrapper:
+        return False
+    if target in wrapper and det in hard:
+        return False
+    return True
+
+
 def compute_target_match_score(det: dict[str, Any], target: LockedTarget, now: float) -> float:
-    """Conservative spatial association; this is not appearance re-identification."""
+    """Sticky lock: ชิ้นที่ล็อกก่อนติดตอนแพน ห้ามกระโดดไปชิ้นข้าง ๆ"""
     det_box = det["box"]
     target_box = target.box
 
     dt = max(0.01, min(0.40, now - target.last_seen))
-    # ตำแหน่งคาดการณ์ตามทิศทางและความเร็วการเคลื่อนไหวของเป้าหมายเดิม (Motion Projection)
-    pred_cx = ((target_box[0] + target_box[2]) / 2.0) + (target.velocity[0] * dt * 0.5)
-    pred_cy = ((target_box[1] + target_box[3]) / 2.0) + (target.velocity[1] * dt * 0.5)
+    pred_cx = ((target_box[0] + target_box[2]) / 2.0) + (target.velocity[0] * dt)
+    pred_cy = ((target_box[1] + target_box[3]) / 2.0) + (target.velocity[1] * dt)
 
     det_cx = (det_box[0] + det_box[2]) / 2.0
     det_cy = (det_box[1] + det_box[3]) / 2.0
@@ -263,37 +381,27 @@ def compute_target_match_score(det: dict[str, Any], target: LockedTarget, now: f
     area_det = w_det * h_det
     area_tgt = w_tgt * h_tgt
     area_ratio = min(area_det, area_tgt) / max(area_det, area_tgt)
-    # วัตถุขนาดต่างกันมาก ไม่ใช่ชิ้นเดียวกันแน่นอน
-    if area_ratio < 0.22:
-        return 0.0
-
-    ar_det = h_det / w_det
-    ar_tgt = h_tgt / w_tgt
-    ar_ratio = min(ar_det, ar_tgt) / max(ar_det, ar_tgt)
-    # อัตราส่วนความกว้าง/สูงต่างกันมาก ไม่ใช่ชิ้นเดียวกัน
-    if ar_ratio < 0.28:
+    if area_ratio < 0.10:
         return 0.0
 
     iou, ios = box_overlap_metrics(det_box, target_box)
-    same_class = (det["class_id"] == target.class_id)
-    if not same_class and det["raw_name"].lower() != target.raw_name.lower():
+    if iou < 0.04 and (dx > max(140.0, w_tgt * 1.8) or dy > max(110.0, h_tgt * 1.8)):
+        return 0.0
+    if area_det > area_tgt * 2.8 and iou < 0.22:
+        return 0.0
+    if iou < 0.04 and ios < 0.16 and dx > max(90.0, w_tgt * 1.1):
         return 0.0
 
-    # หากไม่มีการทับซ้อน ให้ตรวจสอบขอบเขตระยะกระโดดสูงสุด (รองรับการแพนกล้องกว้างขณะหมุนเรือ)
-    if iou < 0.10:
-        if dx > max(40.0, w_tgt * 0.75) or dy > max(40.0, h_tgt * 0.75):
+    if not lock_class_compatible(target.raw_name, str(det.get("raw_name", ""))):
+        if iou < 0.40:
             return 0.0
 
-    spatial_score = (1.0 - min(1.0, dx / 360.0)) * (1.0 - min(1.0, dy / 140.0))
-    class_bonus = 0.25 if same_class else 0.0
-    overlap_score = max(iou, ios * area_ratio)
-
-    score = (
-        0.35 * overlap_score
-        + 0.40 * (spatial_score * area_ratio)
-        + class_bonus
-    )
-    return float(score)
+    spatial_score = (1.0 - min(1.0, dx / 320.0)) * (1.0 - min(1.0, dy / 240.0))
+    overlap_score = max(iou, ios * max(area_ratio, 0.18))
+    score = float(0.55 * overlap_score + 0.45 * spatial_score)
+    if str(target.raw_name).lower().strip() == str(det.get("raw_name", "")).lower().strip():
+        score += 0.08
+    return score
 
 
 def is_same_object_overlap(
@@ -348,12 +456,15 @@ def is_valid_trash_candidate(
     # 1. กรองขนาดที่ใหญ่เกินจริง (ครอบทั้งห้อง/ผนัง/เพดาน)
     if (box_w >= 0.90 * img_w and box_h >= 0.85 * img_h) or (box_w * box_h >= 0.70 * img_w * img_h):
         return False
-    if box_w < 12.0 or box_h < 12.0:
+    if box_w < 14.0 or box_h < 14.0:
+        return False
+    if box_w * box_h < 0.004 * img_w * img_h:
         return False
 
     # 2. กรองสัดส่วน Aspect Ratio ผิดรูป (ขอบปากอ่าง/เงาขอบโค้ง)
     ar = max(box_w / box_h, box_h / box_w)
-    if ar > 4.5:
+    # สายชาร์จ หลอดไฟฟลูออเรสเซนต์ และกระดาษม้วนเป็นของยาว — ห้ามตัดที่ 4.5
+    if ar > 14.0:
         return False
 
     # 3. กรองการทับซ้อนกับคราบน้ำมัน (ถ้าเป็นหยดน้ำมันแต่โมเดลขยะสับสนว่าเป็นซองพลาสติก/ขวดใส)
@@ -378,12 +489,12 @@ def is_valid_trash_candidate(
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         std_val = float(np.std(gray))
         # ก้นอ่างสีขาวและน้ำใสจะมีค่า Standard Deviation ต่ำมาก (< 18.0)
-        if std_val < 18.0 and conf < 0.75:
+        if std_val < 16.0 and conf < 0.40:
             return False
         edges = cv2.Canny(gray, 35, 110)
         edge_density = float(np.sum(edges > 0)) / edges.size
-        # ผิวน้ำที่ไม่มีขยะจริงจะมีความหนาแน่นของเส้นขอบต่ำมาก (< 0.014)
-        if edge_density < 0.014 and conf < 0.65:
+        # ผิวน้ำที่ไม่มีขยะจริงจะมีความหนาแน่นของเส้นขอบต่ำมาก
+        if edge_density < 0.012 and conf < 0.40:
             return False
         # หากทับซ้อนกับคราบน้ำมันและไม่มีลายฉลาก/ขอบแข็งของขยะจริง ให้ปฏิเสธ (ให้น้ำหนักกับโมเดลน้ำมัน)
         if overlaps_oil and (std_val < 26.0 or edge_density < 0.030):
@@ -392,9 +503,47 @@ def is_valid_trash_candidate(
     return True
 
 
+COCO_WASTE_LIKE = {
+    "backpack",
+    "handbag",
+    "suitcase",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "cell phone",
+    "book",
+    "vase",
+    "scissors",
+    "toothbrush",
+    "teddy bear",
+    "sports ball",
+}
+
+
 def trash_class_is_vague(raw_name: str) -> bool:
     name = (raw_name or "").lower().strip()
     return name in {"other", "other plastic", "unknown"} or name.startswith("other ")
+
+
+def is_waste_like_class(raw_name: str, class_names: dict[int, str]) -> bool:
+    """COCO-80 nano is for speed on UNO Q; keep only object types that can be litter."""
+    if len(class_names) != 80:
+        return True
+    return (raw_name or "").lower().strip() in COCO_WASTE_LIKE
 
 
 def is_structure_false_positive(
@@ -410,19 +559,287 @@ def is_structure_false_positive(
     box_h = max(1.0, bottom - top)
     touches_top = top <= img_h * 0.10
     wide_short = box_w >= img_w * 0.22 and box_h <= img_h * 0.40
-    if touches_top and wide_short and (trash_class_is_vague(raw_name) or conf < 0.85):
+    if touches_top and wide_short and conf < 0.85:
+        return True
+    touches_side = left <= img_w * 0.04 or right >= img_w * 0.96
+    tall_thin = box_h >= img_h * 0.45 and box_w <= img_w * 0.18
+    if touches_side and tall_thin and conf < 0.55:
         return True
     return False
 
 
-def can_acquire_trash(det: dict[str, Any]) -> bool:
-    """ชิ้นที่ใช้เริ่มล็อกได้: คลาสชัดล็อกได้ทันที, คลาสคลุมเครือต้องมั่นใจสูง, ไม่ใช้โมเดลรอง"""
+# กระป๋อง (metal) จูนไว้ที่ 0.32 แล้ว — ประเภทอื่นโมเดลมั่นใจต่ำกว่า ต้องเกณฑ์คนละชุด
+ACQUIRE_CONF = {
+    "metal": 0.32,
+    "glass": 0.26,
+    "paper": 0.20,
+    "plastic": 0.20,
+    "trash": 0.22,
+}
+ACQUIRE_MIN_SIDE = {
+    "metal": 22.0,
+    "glass": 20.0,
+    "paper": 18.0,
+    "plastic": 16.0,
+    "trash": 24.0,
+}
+ACQUIRE_MIN_AREA = {
+    "metal": 0.012,
+    "glass": 0.010,
+    "paper": 0.008,
+    "plastic": 0.006,
+    "trash": 0.015,
+}
+
+
+def _box_from_stats(x: float, y: float, bw: float, bh: float, img_w: int, img_h: int, tw: int, th: int, pad: float = 0.015) -> list[float]:
+    sx = img_w / float(tw)
+    sy = img_h / float(th)
+    left = x * sx
+    top = y * sy
+    right = (x + bw) * sx
+    bottom = (y + bh) * sy
+    box_w = max(1.0, right - left)
+    box_h = max(1.0, bottom - top)
+    left = max(0.0, left - box_w * pad)
+    top = max(0.0, top - box_h * pad)
+    right = min(float(img_w), right + box_w * pad)
+    bottom = min(float(img_h), bottom + box_h * pad)
+    return [left, top, right, bottom]
+
+
+def _box_edge_hugs(box: list[float], img_w: int, img_h: int, margin: float = 0.04) -> int:
+    left, top, right, bottom = box
+    return (
+        int(left <= img_w * margin)
+        + int(right >= img_w * (1.0 - margin))
+        + int(top <= img_h * margin)
+        + int(bottom >= img_h * (1.0 - margin))
+    )
+
+
+def _hue_entropy(hsv_crop: np.ndarray) -> float:
+    if hsv_crop.size == 0:
+        return 0.0
+    sat = hsv_crop[:, :, 1]
+    hue = hsv_crop[:, :, 0]
+    mask = sat > 40
+    if int(np.count_nonzero(mask)) < 10:
+        return 0.0
+    hist, _ = np.histogram(hue[mask], bins=12, range=(0, 180))
+    probs = hist.astype(np.float64)
+    probs = probs / (probs.sum() + 1e-6)
+    probs = probs[probs > 0]
+    return float(-(probs * np.log(probs + 1e-9)).sum())
+
+
+def _accept_object_box(box: list[float], image: np.ndarray, *, min_frac: float, max_frac: float, min_std: float) -> bool:
+    img_h, img_w = image.shape[:2]
+    left, top, right, bottom = box
+    box_w = max(1.0, right - left)
+    box_h = max(1.0, bottom - top)
+    boxfrac = (box_w * box_h) / float(img_w * img_h)
+    if boxfrac < min_frac or boxfrac > max_frac:
+        return False
+    if _box_edge_hugs(box, img_w, img_h, 0.03) >= 3:
+        return False
+    crop = image[int(max(0, top)) : int(min(img_h, bottom)), int(max(0, left)) : int(min(img_w, right))]
+    if crop.size == 0:
+        return False
+    return float(np.std(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY))) >= min_std
+
+
+def tighten_object_box(image: np.ndarray, box: list[float]) -> list[float]:
+    """รัดกรอบให้ชิดขยะ — ตัดผนังมืด/พื้นโต๊ะ/ขอบจอ ที่ไม่ใช่ตัวซอง"""
+    img_h, img_w = image.shape[:2]
+    left, top, right, bottom = (float(v) for v in box)
+    x1 = int(max(0, left))
+    y1 = int(max(0, top))
+    x2 = int(min(img_w, right))
+    y2 = int(min(img_h, bottom))
+    if x2 - x1 < 20 or y2 - y1 < 20:
+        return [left, top, right, bottom]
+    crop = image[y1:y2, x1:x2]
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
+    ch, cw = crop.shape[:2]
+    min_w = max(16, int(cw * 0.62))
+    min_h = max(16, int(ch * 0.70))
+    lx, ty, rx, by = 0, 0, cw, ch
+
+    def col_window_dark(x: int) -> bool:
+        x0, x1 = max(lx, x - 1), min(rx, x + 2)
+        dark = 0
+        for cx in range(x0, x1):
+            s = float(sat[:, cx].mean())
+            v = float(val[:, cx].mean())
+            if v < 72.0 or s > 155.0:
+                dark += 1
+        return dark >= max(1, x1 - x0 - 1)
+
+    def row_is_dark_clutter(y: int) -> bool:
+        v = float(val[y, lx:rx].mean())
+        if v < 78.0:
+            return True
+        prev = float(val[max(0, y - 2), lx:rx].mean())
+        nxt = float(val[min(ch - 1, y + 2), lx:rx].mean())
+        return v > 150.0 and (prev < 78.0 or nxt < 78.0)
+
+    def top_window_dark() -> bool:
+        y_end = min(by, ty + 6)
+        dark = sum(1 for y in range(ty, y_end) if row_is_dark_clutter(y))
+        return dark >= 4
+
+    while rx - lx > min_w and col_window_dark(lx):
+        lx += 1
+    while rx - lx > min_w and col_window_dark(rx - 1):
+        rx -= 1
+    while by - ty > min_h and top_window_dark():
+        ty += 1
+    pad = 0.012
+    tw = float(max(1, rx - lx))
+    th = float(max(1, by - ty))
+    tight = [
+        max(0.0, float(x1 + lx) - tw * pad),
+        max(0.0, float(y1 + ty) - th * pad),
+        min(float(img_w), float(x1 + rx) + tw * pad),
+        min(float(img_h), float(y1 + by) + th * pad),
+    ]
+    return tight
+
+
+def refine_center_object_box(image: np.ndarray, *, strict: bool = False) -> list[float] | None:
+    """ซอง/ถุงที่ YOLO พลาด — เลือกก้อนสีฉลากบนโต๊ะ แล้วค่อย GrabCut"""
+    img_h, img_w = image.shape[:2]
+    min_frac, max_frac = (0.10, 0.48) if strict else (0.07, 0.52)
+    min_std = 22.0 if strict else 16.0
+    tw, th = 160, 120
+    small = cv2.resize(image, (tw, th), interpolation=cv2.INTER_AREA)
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+    filled = np.zeros((th, tw), np.uint8)
+    seeds = [
+        (2, 2),
+        (tw - 3, 2),
+        (2, th - 3),
+        (tw - 3, th - 3),
+        (tw // 2, 2),
+        (2, th // 2),
+        (tw - 3, th // 2),
+        (tw // 2, th - 3),
+    ]
+    for seed_x, seed_y in seeds:
+        tmp = small.copy()
+        mask = np.zeros((th + 2, tw + 2), np.uint8)
+        cv2.floodFill(
+            tmp,
+            mask,
+            (seed_x, seed_y),
+            (0, 0, 0),
+            loDiff=(16, 16, 16),
+            upDiff=(16, 16, 16),
+            flags=4 | cv2.FLOODFILL_MASK_ONLY | (255 << 8),
+        )
+        filled |= mask[1:-1, 1:-1]
+    obj = (filled == 0).astype(np.uint8) * 255
+    obj = cv2.morphologyEx(obj, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    obj = cv2.morphologyEx(obj, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    mx = max(2, int(tw * 0.05))
+    obj[:, :mx] = 0
+    obj[:, tw - mx :] = 0
+    _n, _labels, stats, _ = cv2.connectedComponentsWithStats(obj, 8)
+    best: tuple[float, list[float]] | None = None
+    for i in range(1, len(stats)):
+        x, y, bw, bh, area = (float(v) for v in stats[i][:5])
+        if bw < 14 or bh < 14:
+            continue
+        crop = hsv[int(y) : int(y + bh), int(x) : int(x + bw)]
+        sat = float(np.mean(crop[:, :, 1])) if crop.size else 0.0
+        box = _box_from_stats(x, y, bw, bh, img_w, img_h, tw, th)
+        hugs = _box_edge_hugs(box, img_w, img_h)
+        # ตลับเมตร/เครื่องมือสีฉูดชิดขอบ — อย่าให้ชนะซองกลางจอ
+        if hugs and sat > 110.0:
+            continue
+        entropy = _hue_entropy(crop)
+        if sat < 28.0 or entropy < 0.80:
+            continue
+        if not _accept_object_box(box, image, min_frac=min_frac, max_frac=max_frac, min_std=min_std):
+            continue
+        cx = (box[0] + box[2]) / 2.0
+        cy = (box[1] + box[3]) / 2.0
+        dist = math.hypot((cx - img_w / 2.0) / img_w, (cy - img_h / 2.0) / img_h)
+        score = (entropy + 0.15) * math.sqrt(max(1.0, area)) * max(0.25, 1.20 - dist)
+        if hugs:
+            score *= 0.40
+        if best is None or score > best[0]:
+            best = (score, box)
+    if best is not None:
+        return tighten_object_box(image, best[1])
+
+    tw, th = 128, 96
+    small = cv2.resize(image, (tw, th), interpolation=cv2.INTER_AREA)
+    mx, my = 8, 6
+    gc = np.zeros((th, tw), np.uint8)
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    cv2.grabCut(small, gc, (mx, my, tw - 2 * mx, th - 2 * my), bgd, fgd, 1, cv2.GC_INIT_WITH_RECT)
+    fg = (gc == cv2.GC_FGD) | (gc == cv2.GC_PR_FGD)
+    ys, xs = np.where(fg)
+    if xs.size < 80:
+        return None
+    box = [
+        float(xs.min()) * img_w / tw,
+        float(ys.min()) * img_h / th,
+        float(xs.max()) * img_w / tw,
+        float(ys.max()) * img_h / th,
+    ]
+    if not _accept_object_box(box, image, min_frac=min_frac, max_frac=max_frac, min_std=min_std):
+        return None
+    return tighten_object_box(image, box)
+
+
+def _plastic_fallback_class(names: dict[int, str]) -> tuple[int, str]:
+    for class_id, name in names.items():
+        if str(name).lower().strip() == "plastic":
+            return int(class_id), str(name)
+    return 3, "plastic"
+
+
+def acquire_score(det: dict[str, Any], img_w: int, img_h: int) -> float:
+    """กระป๋อง/ขวดจาก YOLO มาก่อน ของชิดขอบ (ตะกร้า/วงกบ) ดึงออก"""
+    conf = float(det["conf"])
+    raw = str(det.get("raw_name", "")).lower().strip()
+    hugs = _box_edge_hugs(det["box"], img_w, img_h)
+    if hugs:
+        conf *= 0.35
+    if raw in {"metal", "glass"}:
+        conf += 0.10
+    elif raw == "plastic":
+        conf += 0.04
+    return conf
+
+
+def can_acquire_trash(det: dict[str, Any], img_w: int, img_h: int) -> bool:
+    """เริ่มล็อกตามชนิดขยะ — ซอง/กล่อง/พลาสติกเข้าได้ง่ายกว่า trash คลุมเครือ"""
     if int(det.get("class_id", 0)) >= 100:
         return False
     conf = float(det["conf"])
-    if trash_class_is_vague(str(det.get("raw_name", ""))):
-        return conf >= 0.82
-    return conf >= 0.42
+    raw = str(det.get("raw_name", "")).lower().strip()
+    if trash_class_is_vague(raw):
+        raw = "trash"
+    left, top, right, bottom = det["box"]
+    box_w = max(1.0, right - left)
+    box_h = max(1.0, bottom - top)
+    min_side = ACQUIRE_MIN_SIDE.get(raw, 22.0)
+    min_area = ACQUIRE_MIN_AREA.get(raw, 0.012)
+    need_conf = ACQUIRE_CONF.get(raw, 0.32)
+    if box_w < min_side or box_h < min_side:
+        return False
+    if box_w * box_h < min_area * img_w * img_h:
+        return False
+    if _box_edge_hugs(det["box"], img_w, img_h) and raw in {"trash", "other"} and conf < 0.55:
+        return False
+    return conf >= need_conf
 
 
 def trash_center_left_view(box: list[float], img_w: int, img_h: int) -> bool:
@@ -434,7 +851,7 @@ def trash_center_left_view(box: list[float], img_w: int, img_h: int) -> bool:
 class LocalTrashDetector:
     def __init__(
         self,
-        model_path: Path,
+        model_path: Path | None,
         oil_model_path: Path | None = DEFAULT_OIL_MODEL,
         nafta_model_path: Path | None = DEFAULT_NAFTA_MODEL,
         secondary_model_path: Path | None = None,
@@ -452,9 +869,7 @@ class LocalTrashDetector:
         oil_confirmation_hits: int = 3,
         parallel_inference: bool = False,
     ) -> None:
-        if not model_path.is_file():
-            raise FileNotFoundError(f"Model not found: {model_path}")
-        self.model_path = model_path.resolve()
+        self.model_path = model_path.resolve() if model_path and model_path.is_file() else None
         self.confidence = confidence
         self.oil_confidence = oil_confidence
         self.iou = iou
@@ -477,8 +892,13 @@ class LocalTrashDetector:
         except Exception:
             self.device = "cpu"
 
-        self.model = YOLO(str(self.model_path))
-        self.names = {int(class_id): str(name) for class_id, name in self.model.names.items()}
+        self.model = None
+        self.names: dict[int, str] = {}
+        if self.model_path is not None:
+            self.model = YOLO(str(self.model_path))
+            self.names = {int(class_id): str(name) for class_id, name in self.model.names.items()}
+        else:
+            print("[local-ai] Trash model not installed — skip trash inference", flush=True)
 
         # NAFTA Oil Spill Semantic Segmentation (ResNet50-PSPNet)
         self.nafta_model = None
@@ -726,6 +1146,11 @@ class LocalTrashDetector:
         image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError("Image is not a valid JPG or PNG")
+        return self.detect_frame(image, enable_trash=enable_trash, enable_oil=enable_oil)
+
+    def detect_frame(self, image: np.ndarray, enable_trash: bool = True, enable_oil: bool = True) -> dict[str, Any]:
+        if image is None or image.size == 0:
+            raise ValueError("Image is not a valid JPG or PNG")
         if self.frame_id % 30 == 0:
             cv2.imwrite("/tmp/live_cam_frame.jpg", image)
 
@@ -748,10 +1173,10 @@ class LocalTrashDetector:
 
         with self.lock:
             self._detect_tick += 1
-            # Trash runs every frame. Oil and the milk model share the CPU, so they run every 4th frame.
-            run_aux = self._detect_tick % 4 == 0
+            # Trash every frame. Oil shares the CPU — run less often so trash stays snappy.
+            run_aux = self._detect_tick % 8 == 0
             inference_jobs: dict[str, tuple[Any, float]] = {}
-            if enable_trash:
+            if enable_trash and self.model is not None:
                 inference_jobs["trash"] = (self.model, self.confidence)
                 if run_aux and self.secondary_model is not None:
                     inference_jobs["secondary"] = (self.secondary_model, max(0.20, self.confidence))
@@ -799,8 +1224,15 @@ class LocalTrashDetector:
             elif enable_oil:
                 oil_result = self._cached_oil_result
 
-            if (run_aux and enable_oil and self.oil_fallback_model is not None and oil_result is not None
-                    and oil_result.boxes is not None and len(oil_result.boxes) == 0):
+            if (
+                run_aux
+                and enable_oil
+                and self.oil_fallback_model is not None
+                and oil_result is not None
+                and oil_result.boxes is not None
+                and len(oil_result.boxes) == 0
+                and (time.perf_counter() - started) < 0.28
+            ):
                 if oil_fallback_result is not None:
                     oil_result = oil_fallback_result
                 else:
@@ -833,6 +1265,8 @@ class LocalTrashDetector:
                     continue
                 class_id = int(box.cls.item())
                 raw_name = self.names.get(class_id, "unknown")
+                if not is_waste_like_class(raw_name, self.names):
+                    continue
                 if is_structure_false_positive([left, top, right, bottom], img_w, img_h, raw_name, conf):
                     continue
                 raw_detections.append(
@@ -873,47 +1307,132 @@ class LocalTrashDetector:
             ):
                 deduped_detections.append(det)
 
-        # ล็อกทีละชิ้นจนกว่าจุดกึ่งกลางจะออกจากภาพ ไม่สลับไปชิ้นอื่นระหว่างที่ยังจับคู่ได้
+        locked_raw = str(self.locked_target.raw_name).lower().strip() if self.locked_target is not None else ""
+        yolo_solid = any(
+            can_acquire_trash(det, img_w, img_h) and str(det.get("raw_name", "")).lower().strip() == "metal"
+            for det in deduped_detections
+        )
+        skip_wrapper_fallback = yolo_solid or locked_raw in {"metal", "glass"}
+        if enable_trash and not skip_wrapper_fallback:
+            try:
+                refined = refine_center_object_box(image, strict=False)
+            except Exception:
+                refined = None
+            if refined is not None and self.locked_target is not None:
+                if not is_same_object_overlap(refined, self.locked_target.box, iou_th=0.20, ios_th=0.35):
+                    refined = None
+            if refined is not None:
+                plastic_id, plastic_name = _plastic_fallback_class(self.names)
+                fallback = {
+                    "class_id": plastic_id,
+                    "raw_name": plastic_name,
+                    "conf": 0.46,
+                    "box": refined,
+                    "source": "fallback",
+                }
+                overlaps_locked = any(
+                    is_same_object_overlap(refined, det["box"], iou_th=0.35, ios_th=0.55)
+                    for det in deduped_detections
+                    if can_acquire_trash(det, img_w, img_h)
+                )
+                if (
+                    not overlaps_locked
+                    and is_valid_trash_candidate(refined, image, 0.46, current_oil_boxes)
+                    and can_acquire_trash(fallback, img_w, img_h)
+                ):
+                    deduped_detections.append(fallback)
+
+        # ล็อกชิ้นเดิมตอนแพนข้ามชิ้นข้าง ๆ — สะบัดพ้นจอแล้วปล่อยกรอบทันที
         if self.locked_target is not None and trash_center_left_view(self.locked_target.box, img_w, img_h):
             self.locked_target = None
             self.primary_track_id = None
 
-        if self.locked_target is not None:
-            has_current_match = any(
-                compute_target_match_score(det, self.locked_target, now) >= 0.18 for det in deduped_detections
-            )
-            if not has_current_match and (now - self.locked_target.last_seen) > self.hold_timeout:
-                self.locked_target = None
-                self.primary_track_id = None
-
         matched_det: dict[str, Any] | None = None
+        dropped_box: list[float] | None = None
+        dropped_raw = ""
         if self.locked_target is not None:
-            best_score = 0.0
-            best_idx = None
+            ranked: list[tuple[float, float, int, float]] = []
             for idx, det in enumerate(deduped_detections):
-                score = compute_target_match_score(det, self.locked_target, now)
-                if score > best_score and score >= 0.18:
-                    best_score = score
-                    best_idx = idx
-
-            if best_idx is not None:
+                if det.get("source") == "fallback" and locked_raw in {"metal", "glass"}:
+                    continue
+                geo = compute_target_match_score(det, self.locked_target, now)
+                appearance = hist_corr(self.locked_target.hist, crop_hsv_hist(image, det["box"]))
+                det_cx = (det["box"][0] + det["box"][2]) / 2.0
+                det_cy = (det["box"][1] + det["box"][3]) / 2.0
+                tgt_cx = (self.locked_target.box[0] + self.locked_target.box[2]) / 2.0
+                tgt_cy = (self.locked_target.box[1] + self.locked_target.box[3]) / 2.0
+                w_tgt = max(1.0, self.locked_target.box[2] - self.locked_target.box[0])
+                h_tgt = max(1.0, self.locked_target.box[3] - self.locked_target.box[1])
+                near = abs(det_cx - tgt_cx) < max(130.0, w_tgt * 1.6) and abs(det_cy - tgt_cy) < max(110.0, h_tgt * 1.6)
+                # ลายเดิมใกล้กรอบเดิม = ชิ้นเดิมแม้ YOLO มั่นใจต่ำ; ซองคนละลายจะไม่ผ่าน
+                if geo < 0.12 and not (appearance >= 0.50 and near):
+                    continue
+                fused = 0.50 * max(geo, 0.0) + 0.50 * max(appearance, 0.0)
+                if fused < 0.18 and not (appearance >= 0.55 and near):
+                    continue
+                iou, _ios = box_overlap_metrics(det["box"], self.locked_target.box)
+                ranked.append((fused, iou, idx, appearance))
+            if ranked:
+                _fused, _iou, best_idx, appearance = max(ranked)
                 matched_det = deduped_detections[best_idx]
+                layers = ("detect", "motion")
+                if appearance >= 0.45:
+                    layers = ("detect", "motion", "appearance")
                 self.locked_target.update(
                     matched_det["box"],
                     matched_det["conf"],
                     now,
                     alpha=self.alpha,
+                    image=image,
+                    layers=layers,
                 )
             else:
-                self.locked_target.misses += 1
-                # หากเป็นเป้าหมายชั่วคราว 1 เฟรมที่ยังไม่ยืนยัน และเฟรมนี้ไม่เจอซ้ำ ให้ลบทันที ป้องกันภาพหลอนลอยค้าง
-                if not self.locked_target.is_confirmed:
+                pred_box = self.locked_target.predicted_box(now, img_w, img_h)
+                coast_app = hist_corr(self.locked_target.hist, crop_hsv_hist(image, pred_box))
+                still_in_view = not trash_center_left_view(pred_box, img_w, img_h)
+                # ลายชิ้นเดิมยังอยู่ที่จุดที่คาด = แพนตามเป้า ล็อกต่อ; สะบัดไปฉากใหม่ลายไม่ตรง = ปล่อยทันที
+                if still_in_view and coast_app >= 0.45:
+                    self.locked_target.update(
+                        pred_box,
+                        max(0.30, float(self.locked_target.confidence) * 0.94),
+                        now,
+                        alpha=0.32,
+                        image=image,
+                        layers=("appearance", "hold"),
+                    )
+                    matched_det = {
+                        "class_id": self.locked_target.class_id,
+                        "raw_name": self.locked_target.raw_name,
+                        "conf": self.locked_target.confidence,
+                        "box": list(self.locked_target.box),
+                    }
+                elif still_in_view and (now - self.locked_target.last_seen) <= max(0.28, float(self.hold_timeout)):
+                    self.locked_target.misses += 1
+                    self.locked_target.keep_layers = ("hold",)
+                    matched_det = {
+                        "class_id": self.locked_target.class_id,
+                        "raw_name": self.locked_target.raw_name,
+                        "conf": self.locked_target.confidence,
+                        "box": list(self.locked_target.box),
+                    }
+                else:
+                    dropped_box = list(self.locked_target.box)
+                    dropped_raw = self.locked_target.raw_name
                     self.locked_target = None
                     self.primary_track_id = None
-        else:
-            acquirable = [det for det in deduped_detections if can_acquire_trash(det)]
+
+        if self.locked_target is None:
+            acquirable = [det for det in deduped_detections if can_acquire_trash(det, img_w, img_h)]
+            if dropped_box is not None:
+                acquirable = [
+                    det
+                    for det in acquirable
+                    if lock_class_compatible(dropped_raw, str(det.get("raw_name", "")))
+                    and is_same_object_overlap(det["box"], dropped_box, iou_th=0.18, ios_th=0.32)
+                ]
             if acquirable:
-                best_cand = max(acquirable, key=lambda d: d["conf"])
+                best_cand = max(acquirable, key=lambda d: acquire_score(d, img_w, img_h))
+                best_cand = {**best_cand, "box": tighten_object_box(image, best_cand["box"])}
                 target_id = self.next_track_id
                 self.next_track_id += 1
                 self.locked_target = LockedTarget(
@@ -925,6 +1444,8 @@ class LocalTrashDetector:
                     timestamp=now,
                     confirmation_hits=self.confirmation_hits,
                 )
+                self.locked_target.remember_appearance(image)
+                self.locked_target.keep_layers = ("detect", "motion", "appearance")
                 self.primary_track_id = target_id
                 matched_det = best_cand
 
@@ -938,8 +1459,8 @@ class LocalTrashDetector:
                     {
                         "track_id": idx + 1,
                         "class_id": det["class_id"],
-                        "class_name": "ขยะ",
-                        "class_name_en": "Trash",
+                        "class_name": trash_display_names(det["raw_name"])[0],
+                        "class_name_en": trash_display_names(det["raw_name"])[1],
                         "raw_class_name": det["raw_name"],
                         "type": "trash",
                         "confidence": float(det["conf"]),
@@ -955,14 +1476,10 @@ class LocalTrashDetector:
         elif (
             self.locked_target is not None
             and self.locked_target.is_confirmed
-            and (now - self.locked_target.last_seen) <= self.hold_timeout
+            and matched_det is not None
         ):
-            status = "DETECTED" if matched_det is not None else "TRACKED"
+            status = "DETECTED"
             conf = float(self.locked_target.confidence)
-            if status == "TRACKED":
-                elapsed_hold = now - self.locked_target.last_seen
-                decay = max(0.0, 1.0 - (elapsed_hold / self.hold_timeout) * 0.40)
-                conf = max(0.20, conf * decay)
 
             left, top, right, bottom = self.locked_target.box
             center_x = (left + right) / 2.0
@@ -971,8 +1488,8 @@ class LocalTrashDetector:
                 {
                     "track_id": self.locked_target.track_id,
                     "class_id": self.locked_target.class_id,
-                    "class_name": "ขยะ",
-                    "class_name_en": "Trash",
+                    "class_name": trash_display_names(self.locked_target.raw_name)[0],
+                    "class_name_en": trash_display_names(self.locked_target.raw_name)[1],
                     "raw_class_name": self.locked_target.raw_name,
                     "type": "trash",
                     "confidence": conf,
@@ -983,6 +1500,7 @@ class LocalTrashDetector:
                     "pixel_y": round(center_y),
                     "width": right - left,
                     "height": bottom - top,
+                    "lock_layers": list(self.locked_target.keep_layers),
                 }
             )
 
@@ -1218,7 +1736,7 @@ class LocalTrashDetector:
             )
         )
         active_models = []
-        if enable_trash:
+        if enable_trash and self.model_path is not None:
             active_models.append(self.model_path.name)
         if enable_oil:
             if self.nafta_model is not None and self.nafta_model_path is not None:
@@ -1260,7 +1778,7 @@ class LocalTrashDetector:
                 "priority_decision": priority_decision,
                 "priority_decision_th": priority_th,
                 "priority_decision_en": priority_en,
-                "trash_status": "ACTIVE" if enable_trash else "DISABLED",
+                "trash_status": "ACTIVE" if enable_trash and self.model is not None else "DISABLED",
                 "oil_status": ("ACTIVE" if (self.nafta_model is not None or self.oil_model is not None) else "PREPARING") if enable_oil else "DISABLED",
                 "input_width": int(image.shape[1]),
                 "input_height": int(image.shape[0]),
@@ -1291,7 +1809,7 @@ class LocalTrashDetector:
         return response
 
     def health(self) -> dict[str, Any]:
-        active_models = [self.model_path.name]
+        active_models = [self.model_path.name] if self.model_path is not None else []
         if self.nafta_model is not None and self.nafta_model_path is not None:
             active_models.append(f"NAFTA PSPNet ({self.nafta_model_path.name})")
         elif self.oil_model is not None and self.oil_model_path is not None:
@@ -1312,7 +1830,7 @@ class LocalTrashDetector:
             "source": "local",
             "model": active_model_desc,
             "device": self.device,
-            "task": self.model.task,
+            "task": self.model.task if self.model is not None else "none",
             "classes": self.names,
             "oil_classes": oil_classes,
             "oil_auto_ready": self.oil_auto_ready,
@@ -1326,7 +1844,7 @@ class LocalTrashDetector:
             "oil_hold_timeout": self.oil_hold_timeout,
             "confirmation_hits": self.confirmation_hits,
             "oil_confirmation_hits": self.oil_confirmation_hits,
-            "trash_status": "ACTIVE",
+            "trash_status": "ACTIVE" if self.model is not None else "DISABLED",
             "oil_status": "ACTIVE" if (self.nafta_model is not None or self.oil_model is not None) else "PREPARING",
         }
 
@@ -1394,7 +1912,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Local offline dual trash & oil inference server with tracking")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL, help="Primary trash detection weights (optional)")
     parser.add_argument(
         "--oil-model",
         type=Path,
@@ -1493,7 +2011,7 @@ def main() -> None:
         else (f" + {detector.oil_model_path.name}" if detector.oil_model is not None else "")
     )
     print(
-        f"[local-ai] ready http://{args.host}:{args.port} model={detector.model_path.name}{oil_info}{sec_info} "
+        f"[local-ai] ready http://{args.host}:{args.port} model={(detector.model_path.name if detector.model_path else 'none')}{oil_info}{sec_info} "
         f"device={detector.device} conf={args.conf} oil_conf={args.oil_conf} iou={args.iou} imgsz={args.imgsz} "
         f"hold={args.hold}s alpha={args.alpha} max_targets={detector.max_targets}",
         flush=True,

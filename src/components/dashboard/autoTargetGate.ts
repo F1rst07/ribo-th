@@ -13,10 +13,11 @@ export class AutoTargetGate {
   }
 
   select(items: TrashDetection[], status: VisionStatus, receivedAt: number, frame: number, now: number): TrashDetection | null {
-    if (status !== "ready" || now - receivedAt > 500) {
+    if (status !== "ready" || now - receivedAt > 1500) {
       return null;
     }
-    const fresh = items.filter((item) => item.status === "DETECTED" &&
+    const fresh = items.filter((item) =>
+      (item.status === "DETECTED" || item.status === "TRACKED") &&
       (item.type !== "oil" || item.autoEligible === true));
     const key = (item: TrashDetection) => `${item.type || "trash"}:${item.trackId}`;
     if (this.lockedKey) {
@@ -25,8 +26,8 @@ export class AutoTargetGate {
         this.lastSeen = now;
         return same;
       }
-      // Remember the identity, but never drive on its stale coordinates.
-      if (now - this.lastSeen < 350) return null;
+      // ของเก่ายังถือว่าอยู่ในภารกิจ จนกว่ากล้องไม่ส่งชิ้นนั้นมาแล้ว — ห้ามกระโดดไปชิ้นใหม่
+      if (now - this.lastSeen < 2800) return null;
       this.lockedKey = null;
     }
     if (frame === this.lastFrame) return null;

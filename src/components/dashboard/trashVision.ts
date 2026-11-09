@@ -45,18 +45,7 @@ export interface VisionMeta {
   oilStatus?: "ACTIVE" | "INACTIVE" | "PREPARING" | "ERROR";
 }
 
-export function getTrashTypeLabel(rawName: string, lang: "th" | "en" = "th"): string {
-  const normalized = (rawName || "").toLowerCase();
-  if (normalized.includes("can")) return lang === "th" ? "กระป๋อง" : "Can";
-  if (normalized.includes("bottle") && !normalized.includes("cap")) return lang === "th" ? "ขวด" : "Bottle";
-  if (normalized.includes("carton") || normalized.includes("box")) return lang === "th" ? "กล่อง" : "Box";
-  if (normalized.includes("bag") || normalized.includes("wrapper") || normalized.includes("plastic bag")) {
-    return lang === "th" ? "ถุงพลาสติก" : "Plastic Bag";
-  }
-  if (normalized.includes("cup")) return lang === "th" ? "แก้วน้ำ" : "Cup";
-  if (normalized.includes("cap")) return lang === "th" ? "ฝาขวด" : "Bottle Cap";
-  if (normalized.includes("cigarette")) return lang === "th" ? "ก้นบุหรี่" : "Cigarette";
-  if (normalized.includes("other plastic")) return lang === "th" ? "พลาสติก" : "Plastic";
+export function getTrashTypeLabel(_rawName: string, lang: "th" | "en" = "th"): string {
   return lang === "th" ? "ขยะ" : "Trash";
 }
 
@@ -71,8 +60,8 @@ export function parseDetections(value: unknown, width: number, height: number): 
     const boxHeight = Number(record.height);
     const confidence = Number(record.confidence);
     const classId = Number.isInteger(record.class_id) ? (record.class_id as number) : 0;
-    const className = typeof record.class_name === "string" && record.class_name ? record.class_name : "ขยะ";
-    const classNameEn = typeof record.class_name_en === "string" && record.class_name_en ? record.class_name_en : "Trash";
+    const className = "ขยะ";
+    const classNameEn = "Trash";
     const rawClassName = typeof record.raw_class_name === "string" ? record.raw_class_name : "unknown";
     const rawTrackId = record.track_id ?? record.trackId;
     const parsedId = typeof rawTrackId === "number" ? Math.round(rawTrackId) : parseInt(String(rawTrackId), 10);

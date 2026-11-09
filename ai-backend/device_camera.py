@@ -5,6 +5,8 @@ import threading
 import time
 import cv2
 
+cv2.setNumThreads(1)
+
 class CameraStreamer:
     """Background camera capture thread for USB UVC webcams (Logitech C270)"""
     def __init__(self):
@@ -117,13 +119,13 @@ class CameraStreamer:
                     time.sleep(1.0)
                     continue
 
-                # Drain capture continuously; encode ~10 FPS so Wi-Fi stays smooth without a 15 FPS MJPEG flood.
-                if time.monotonic() - last_encoded_at < 0.1:
+                # Drain capture continuously; encode ~8 FPS — live video stays smooth, less heat.
+                if time.monotonic() - last_encoded_at < 0.12:
                     continue
                 last_encoded_at = time.monotonic()
                 height, width = frame.shape[:2]
                 if width > 480:
-                    frame = cv2.resize(frame, (480, int(height * 480 / width)), interpolation=cv2.INTER_AREA)
+                    frame = cv2.resize(frame, (480, int(height * 480 / width)), interpolation=cv2.INTER_LINEAR)
                 # Quality 52 keeps motion readable at roughly half the bytes of quality 70.
                 ret, jpeg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 52])
                 if ret:

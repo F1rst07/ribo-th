@@ -23,7 +23,8 @@ for name, relative in [("trash_new", "models/trash_new.pt"), ("milk", "models/mi
     checkpoint = output / f"{name}.pt"
     shutil.copy2(source, checkpoint)
     model = YOLO(str(checkpoint))
-    exported = Path(model.export(format="onnx", imgsz=640, opset=17, simplify=False, dynamic=True, nms=False, device="cpu"))
+    imgsz = 320 if name in {"trash_new", "milk"} else 640
+    exported = Path(model.export(format="onnx", imgsz=imgsz, opset=17, simplify=False, dynamic=True, nms=False, device="cpu"))
     manifest.append({"name": name, "source": relative, "task": model.task, "classes": model.names,
                      "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                      "onnx_sha256": hashlib.sha256(exported.read_bytes()).hexdigest()})

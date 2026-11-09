@@ -90,6 +90,8 @@ export interface Translations {
   wifiPasswordOptional: string;
   wifiSetup: string;
   wifiSetupBusy: string;
+  wifiSaveToBoard: string;
+  wifiSetupHint: string;
   wifiUsbHint: string;
   wifiOpenNetwork: string;
   boardNoResponse: string;
@@ -97,6 +99,8 @@ export interface Translations {
   wifiSetupOk: string;
   mobileLanHint: string;
   openBoardOnLan: string;
+  cloudLauncherStatus: string;
+  lanMismatch: string;
   cloudBoardBlocked: string;
 }
 
@@ -142,8 +146,8 @@ export const strings: Record<Language, Translations> = {
     left: "ซ้าย",
     right: "ขวา",
     stopMove: "หยุด",
-    estop: "⛔ หยุดฉุกเฉิน",
-    reset: "↻ ปลดล็อกระบบ",
+    estop: "หยุดฉุกเฉิน",
+    reset: "ปลดล็อกระบบ",
     estopNote: "ปุ่มหยุดการทำงานฉุกเฉิน (E-STOP) ของหุ่นยนต์",
     trashSys: "ระบบเก็บขยะ",
     motor: "สถานะมอเตอร์",
@@ -187,20 +191,25 @@ export const strings: Record<Language, Translations> = {
     autoNavStabilizing: "หยุดนิ่งเพื่อปรับมุมมองและล็อกขยะชิ้นใหม่...",
     autoNavActive: "ระบบนำทางอัตโนมัติ : ทำงาน",
     collectedCountLabel: "เก็บสำเร็จ : ",
-    boardIpLabel: "IP บอร์ด (Wi-Fi)",
+    boardIpLabel: "IP",
     wifiSsidLabel: "ชื่อ Wi-Fi",
     wifiPasswordLabel: "รหัส Wi-Fi",
     wifiPasswordOptional: "เว้นว่างถ้าเครือข่ายเปิด",
     wifiSetup: "ตั้งค่า Wi-Fi บน UNO Q",
     wifiSetupBusy: "กำลังตั้ง Wi-Fi...",
+    wifiSaveToBoard: "บันทึกลง UNO Q",
+    wifiSetupHint: "กรอกเน็ตใหม่ แล้วกดบันทึก บอร์ดจะเก็บไว้เชื่อมเองเมื่อเจอสัญญาณ",
     wifiUsbHint: "ไม่ต้องต่อสาย USB — ใช้ Wi-Fi กับบอร์ดได้",
     wifiOpenNetwork: "เครือข่ายเปิด : ไม่ต้องใส่รหัส Wi-Fi",
     boardNoResponse: "บอร์ดไม่ตอบที่ {ip} : กดเชื่อมต่อใหม่",
     boardNotFoundWifi: "ไม่พบบอร์ดบน Wi-Fi นี้ : กดเชื่อมต่อใหม่",
-    wifiSetupOk: "ตั้ง Wi-Fi บน UNO Q แล้ว — ให้อุปกรณ์อยู่เครือข่าย Wi-Fi เดียวกับ UNO Q แล้วกดเชื่อมต่อได้เลย!",
+    wifiSetupOk: "บันทึก Wi-Fi บนบอร์ดแล้ว — จะเชื่อมอัตโนมัติเมื่อเจอสัญญาณนั้น",
     mobileLanHint:
-      "บนมือถือ กดเชื่อมต่อ หรือปุ่มเหลือง แล้วจะเปิดแดชบอร์ดบนบอร์ดให้เอง",
-    openBoardOnLan: "เปิดแดชบอร์ดบนบอร์ด (Wi-Fi เดียวกัน)",
+      "เลข IP เปลี่ยนตาม Wi-Fi ได้ ใช้ชื่อ ribo-th.local บนเน็ตเดียวกับบอร์ดจะเจอเอง ไม่ต้องจำเลข",
+    openBoardOnLan: "เปิดใช้ {url}",
+    cloudLauncherStatus: "ทางเข้าบอร์ด — เปิดด้วย ribo-th.local",
+    lanMismatch:
+      "เครื่องนี้อยู่เน็ต {lan} คนละ Wi-Fi กับบอร์ด {board} — ต่อ {ssid} ก่อน แล้วค่อยเปิด :3000",
     cloudBoardBlocked:
       "เรียก {ip} แล้วไม่มีบอร์ดตอบบนเครือข่ายนี้ — เปิดบอร์ดและต่อ Wi-Fi เดียวกันก่อน แล้วกดเชื่อมต่อใหม่",
   },
@@ -245,8 +254,8 @@ export const strings: Record<Language, Translations> = {
     left: "Left",
     right: "Right",
     stopMove: "Stop",
-    estop: "⛔ Emergency Stop",
-    reset: "↻ Reset System",
+    estop: "Emergency Stop",
+    reset: "Reset System",
     estopNote: "Robot Emergency Stop (E-STOP) System",
     trashSys: "Trash Collection System",
     motor: "Motor Status",
@@ -290,20 +299,25 @@ export const strings: Record<Language, Translations> = {
     autoNavStabilizing: "Stabilizing camera to lock next target...",
     autoNavActive: "Autonomous Nav : Active",
     collectedCountLabel: "Collected : ",
-    boardIpLabel: "Board IP (Wi-Fi)",
+    boardIpLabel: "IP",
     wifiSsidLabel: "Wi-Fi name",
     wifiPasswordLabel: "Wi-Fi password",
     wifiPasswordOptional: "Leave empty for open networks",
     wifiSetup: "Set board Wi-Fi",
     wifiSetupBusy: "Configuring Wi-Fi...",
+    wifiSaveToBoard: "Save to UNO Q",
+    wifiSetupHint: "Enter a new network, then save. The board keeps it and joins when it is in range.",
     wifiUsbHint: "No USB cable — use Wi-Fi to reach the board",
     wifiOpenNetwork: "Open network: no Wi-Fi password",
     boardNoResponse: "Board not responding at {ip} — press Connect again",
     boardNotFoundWifi: "No board on this Wi-Fi — press Connect again",
-    wifiSetupOk: "Board Wi-Fi updated — join the same Wi-Fi on your Mac, then Connect",
+    wifiSetupOk: "Wi-Fi saved on the board — it will join that network when it is in range",
     mobileLanHint:
-      "On a phone, Connect or the yellow button opens the dashboard on the board.",
-    openBoardOnLan: "Open dashboard on the board (same Wi-Fi)",
+      "The numeric IP can change. Use ribo-th.local on the same Wi-Fi — no need to remember the number.",
+    openBoardOnLan: "Open {url}",
+    cloudLauncherStatus: "Board launcher — open ribo-th.local",
+    lanMismatch:
+      "This device is on {lan}, not the board at {board}. Join {ssid}, then open :3000.",
     cloudBoardBlocked:
       "Nothing answered at {ip} on this network. Power the board, join its Wi-Fi, then press Connect again.",
   },

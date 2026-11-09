@@ -38,6 +38,7 @@ export function isTrustedDashboardOrigin(origin: string): boolean {
     const u = new URL(origin);
     if (u.hostname === "ribo-th.vercel.app" || u.hostname.endsWith(".vercel.app")) return true;
     if (/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) return true;
+    if (u.hostname.endsWith(".local")) return true;
     return false;
   } catch {
     return false;

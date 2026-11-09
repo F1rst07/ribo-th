@@ -51,6 +51,7 @@ class YOLO:
         options = ort.SessionOptions()
         options.intra_op_num_threads = int(os.environ.get("RIBO_ORT_THREADS", "2"))
         options.inter_op_num_threads = 1
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         options.add_session_config_entry("session.intra_op.allow_spinning", "0")
         options.add_session_config_entry("session.inter_op.allow_spinning", "0")
         self.session = ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
@@ -59,18 +60,25 @@ class YOLO:
         self.task = metadata["task"]
         self.input = self.session.get_inputs()[0]
         self.dynamic = not isinstance(self.input.shape[2], int)
-        if self.input.shape[1] != 3 or (not self.dynamic and self.input.shape != [1, 3, 640, 640]):
-            raise ValueError("Device model must be a 640px or dynamic RGB export")
+        self.fixed_size = None if self.dynamic else int(self.input.shape[2])
+        allowed = {256, 320, 384, 448, 640}
+        if self.input.shape[1] != 3:
+            raise ValueError("Device model must be an RGB export")
+        if not self.dynamic and (
+            self.fixed_size not in allowed
+            or list(self.input.shape) != [1, 3, self.fixed_size, self.fixed_size]
+        ):
+            raise ValueError("Device model must be a 256–640px or dynamic RGB export")
 
     def predict(self, source, conf=0.35, iou=0.45, agnostic_nms=True, **kwargs):
         start = time.perf_counter()
         height, width = source.shape[:2]
-        requested_size = int(kwargs.get("imgsz", 640))
-        target_size = max(32, (requested_size // 32) * 32) if self.dynamic else 640
-        gain = min(target_size / height, target_size / width)
+        requested_size = int(kwargs.get("imgsz", self.fixed_size or 320))
+        letterbox = self.fixed_size or max(32, (requested_size // 32) * 32)
+        gain = min(letterbox / height, letterbox / width)
         resized = (round(width * gain), round(height * gain))
-        input_w = ((resized[0] + 31) // 32) * 32 if self.dynamic else 640
-        input_h = ((resized[1] + 31) // 32) * 32 if self.dynamic else 640
+        input_w = letterbox if not self.dynamic else ((resized[0] + 31) // 32) * 32
+        input_h = letterbox if not self.dynamic else ((resized[1] + 31) // 32) * 32
         pad_x, pad_y = (input_w - resized[0]) / 2, (input_h - resized[1]) / 2
         left, top = round(pad_x - 0.1), round(pad_y - 0.1)
         image = cv2.resize(source, resized, interpolation=cv2.INTER_LINEAR)

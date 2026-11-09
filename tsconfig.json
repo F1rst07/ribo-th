@@ -38,6 +38,10 @@
     ".next-device/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "models",
+    "datasets",
+    "runs",
+    "ai-backend/.venv"
   ]
 }

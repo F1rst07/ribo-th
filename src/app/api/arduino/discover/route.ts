@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     return jsonWithCors(request, {
       found: true,
       ip: self,
-      hostname: "KPhiraphat.local",
+      hostname: "ribo-th.local",
       source: "device",
     });
   }

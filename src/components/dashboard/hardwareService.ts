@@ -4,6 +4,7 @@
  */
 
 import {
+  BOARD_MDNS_HOST,
   boardArduinoApi,
   boardVisionApi,
   DEFAULT_BOARD_IP,
@@ -29,12 +30,14 @@ let activeCameraStream: MediaStream | null = null;
 export function getUnoQIp(): string {
   if (typeof window !== "undefined") {
     if (window.location.hostname.endsWith(".local") || /^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^10\./.test(window.location.hostname)) {
-      return window.location.hostname;
+      return BOARD_MDNS_HOST;
     }
     const saved = localStorage.getItem("ribo_unoq_ip") || "";
+    if (saved.endsWith(".local")) return saved;
+    if (saved && !isStaleUnoQIp(saved) && !isCloudDashboard()) return saved;
+    if (isCloudDashboard()) return BOARD_MDNS_HOST;
     if (saved && !isStaleUnoQIp(saved)) return saved;
-    if (isCloudDashboard()) return DEFAULT_BOARD_IP;
-    return "";
+    return DEFAULT_BOARD_IP;
   }
   return "";
 }

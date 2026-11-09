@@ -15,8 +15,8 @@ import { boardArduinoApi, boardVisionApi } from "@/lib/clientBoardApi";
 import { getUnoQIp } from "./hardwareService";
 
 /** Gap after each AI result. The live picture is a separate MJPEG and is never copied onto a canvas. */
-const WIFI_VISION_MS = 200;
-const USB_VISION_MIN_MS = 280;
+const WIFI_VISION_MS = 50;
+const USB_VISION_MIN_MS = 80;
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -96,18 +96,6 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
       let nextDelay = WIFI_VISION_MS;
       try {
         const ip = getUnoQIp();
-        const snapResp = await fetch(boardArduinoApi(ip, "snapshot", { ip }), {
-          cache: "no-store",
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
-          mode: "cors",
-        });
-        if (!snapResp.ok) throw new Error(`snapshot ${snapResp.status}`);
-        const blob = await snapResp.blob();
-        const bitmap = await createImageBitmap(blob);
-        const frameW = bitmap.width;
-        const frameH = bitmap.height;
-        bitmap.close();
-        const image = await blobToBase64(blob);
         const response = await fetch(boardVisionApi(ip), {
           method: "POST",
           headers: {
@@ -116,8 +104,8 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             "X-Enable-Oil": enableOilModel ? "1" : "0",
             ...(boardVisionApi(ip).startsWith("/") ? { "X-UNOQ-IP": ip } : {}),
           },
-          body: image,
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
+          body: "e30=",
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]),
         });
         if (response.status === 429) {
           if (!stopped) timer = setTimeout(() => void wifiScan(), WIFI_VISION_MS);
@@ -127,6 +115,8 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
         if (!response.ok) {
           throw new Error(typeof result.error === "string" ? result.error : `HTTP ${response.status}`);
         }
+        const frameW = Number(result.meta?.input_width) || 480;
+        const frameH = Number(result.meta?.input_height) || 360;
         const parsed = parseDetections(result.predictions, frameW, frameH);
         const meta = parseVisionMeta(result.meta);
         if (!stopped) {
@@ -136,7 +126,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
       } catch (error) {
         if (!stopped) {
           failures += 1;
-          nextDelay = Math.min(15000, WIFI_VISION_MS * 2 ** Math.min(failures, 3));
+          nextDelay = Math.min(400, WIFI_VISION_MS * 2 ** Math.min(failures, 3));
           onResult([], "error", error instanceof Error ? error.message : "Inference failed");
         }
       }
@@ -213,9 +203,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]),
           });
           if (response.status === 429) {
-            // Another dashboard is inferring. Keep its result timestamp old;
-            // the next scan captures a fresh frame rather than queuing this one.
-            if (!stopped) timer = setTimeout(() => void scan(), 750 + Math.random() * 500);
+            if (!stopped) timer = setTimeout(() => void scan(), WIFI_VISION_MS);
             return;
           }
           const result = await response.json();
@@ -226,7 +214,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             failures = 0;
             onResult(parsed, "ready", "", meta);
             // Leave bandwidth/CPU for live video; never queue inference work.
-            nextDelay = Math.max(USB_VISION_MIN_MS, 180 - (performance.now() - scanStarted));
+            nextDelay = Math.max(USB_VISION_MIN_MS, 40 - (performance.now() - scanStarted));
           }
         }
       } catch (error) {
@@ -413,13 +401,12 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
                     : Math.round(((detection.y + detection.height / 2) / 100) * 360);
                   const isOil = detection.type === "oil" || (typeof detection.className === "string" && detection.className.includes("น้ำมัน"));
                   const coord = `(${px}, ${py})`;
+                  const trashTitle = isThai ? "ขยะ" : "Trash";
                   const label = isOil
                     ? (isThai
                       ? `คราบน้ำมัน : ${Math.round(detection.confidence * 100)}% ${coord}`
                       : `Oil : ${Math.round(detection.confidence * 100)}% ${coord}`)
-                    : (isThai
-                      ? `ขยะ : ${Math.round(detection.confidence * 100)}% ${coord}`
-                      : `Trash : ${Math.round(detection.confidence * 100)}% ${coord}`);
+                    : `${trashTitle} : ${Math.round(detection.confidence * 100)}% ${coord}`;
                   const accentColor = isOil ? "#f97316" : "#ffc107";
 
                   // บังคับขอบเขตกรอบให้อยู่ในจอภาพ ไม่หลุดล้นขอบจอ

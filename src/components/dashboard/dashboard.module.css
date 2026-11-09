@@ -148,8 +148,42 @@
 }
 
 .layoutDisconnected {
-  grid-template-columns: minmax(320px, 700px);
+  grid-template-columns: minmax(240px, 640px);
   justify-content: center;
+  width: 100%;
+}
+
+.wrapLauncher {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+  flex: 1;
+  padding: 36px 28px 48px;
+}
+
+.containerLauncher .header {
+  padding: 14px 28px;
+}
+
+.containerLauncher .brand h1 {
+  font-size: 22px;
+}
+
+.containerLauncher .brand p {
+  font-size: 13px;
+}
+
+.containerLauncher .footer {
+  padding: 20px 28px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.containerLauncher .footer p {
+  font-size: 13px;
+}
+
+.containerLauncher .footer p + p {
+  font-size: 12.5px;
 }
 
 .stack {
@@ -241,6 +275,52 @@
   grid-column: 1 / -1;
 }
 
+.statusCardLauncher {
+  padding: 24px 24px 26px;
+  border-radius: 14px;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.statusCardLauncher .statusHeader {
+  font-size: 18px;
+  gap: 8px;
+}
+
+.statusCardLauncher .boardSetup {
+  margin-top: 18px;
+  padding-top: 18px;
+  gap: 14px;
+}
+
+.statusCardLauncher .setupLabel {
+  font-size: 13px;
+  gap: 7px;
+  color: #c5d0d8;
+}
+
+.statusCardLauncher .setupInput {
+  font-size: 16px;
+  padding: 12px 14px;
+  min-height: 46px;
+  border-radius: 9px;
+}
+
+.statusCardLauncher .btnWifiSetup {
+  min-height: 32px !important;
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+  flex-shrink: 0;
+}
+
+.statusCardLauncher .btnOpenBoard {
+  min-height: 48px !important;
+  font-size: 15px !important;
+  padding: 12px 16px !important;
+  border-radius: 10px !important;
+  gap: 8px !important;
+}
+
 .boardSetup {
   margin-top: 8px;
   padding-top: 8px;
@@ -248,6 +328,12 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.boardSetup form {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
 }
 
 .setupLabel {
@@ -429,6 +515,13 @@
 
 .btnConnect:hover:not(:disabled) {
   filter: brightness(1.15) !important;
+}
+
+a.btnOpenBoard {
+  text-decoration: none;
+  text-align: center;
+  line-height: 1.25;
+  white-space: normal;
 }
 
 .btnConnected {
@@ -1147,6 +1240,40 @@
   .statusCard {
     padding: 8px 10px;
     border-radius: 7px;
+  }
+  .wrapLauncher {
+    padding: 24px 20px 32px;
+  }
+  .containerLauncher .header {
+    padding: 12px 20px;
+  }
+  .containerLauncher .footer {
+    padding: 18px 20px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  .statusCardLauncher {
+    padding: 20px 18px 22px;
+    border-radius: 12px;
+  }
+  .statusCardLauncher .statusHeader {
+    font-size: 17px;
+  }
+  .statusCardLauncher .boardSetup {
+    margin-top: 16px;
+    padding-top: 16px;
+    gap: 12px;
+  }
+  .statusCardLauncher .setupLabel {
+    font-size: 13px;
+  }
+  .statusCardLauncher .setupInput {
+    font-size: 16px;
+    padding: 11px 13px;
+    min-height: 44px;
+  }
+  .statusCardLauncher .btnOpenBoard {
+    min-height: 46px !important;
+    font-size: 15px !important;
+    padding: 12px 14px !important;
   }
   .statusHeader {
     font-size: 12.5px;
