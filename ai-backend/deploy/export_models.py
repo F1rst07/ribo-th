@@ -20,10 +20,13 @@ manifest = []
 for name, relative in [("trash_new", "models/trash_new.pt"), ("milk", "models/milk.pt"),
                        ("oil_best", "models/oil/best.pt"), ("oil_fallback", "models/oil/basin_adapt_v2.pt")]:
     source = root / relative
+    if not source.is_file():
+        print(f"skip missing {relative}")
+        continue
     checkpoint = output / f"{name}.pt"
     shutil.copy2(source, checkpoint)
     model = YOLO(str(checkpoint))
-    imgsz = 320 if name in {"trash_new", "milk"} else 640
+    imgsz = 320
     exported = Path(model.export(format="onnx", imgsz=imgsz, opset=17, simplify=False, dynamic=True, nms=False, device="cpu"))
     manifest.append({"name": name, "source": relative, "task": model.task, "classes": model.names,
                      "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),

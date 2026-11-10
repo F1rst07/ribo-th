@@ -230,7 +230,7 @@ class LockedTarget:
 
 
 class LockedOilTrack:
-    """การติดตามและหน่วงตำแหน่งคราบน้ำมัน/หยดน้ำมัน (Temporal Oil Tracking with Anti-Ghost Confirmation)"""
+    """ล็อกคราบน้ำมันหลายเป้า — ชั้น detect/motion/appearance แบบขยะ สะบัดพ้นจอแล้วปล่อย"""
 
     def __init__(
         self,
@@ -241,6 +241,7 @@ class LockedOilTrack:
         area_pct: float,
         timestamp: float,
         oil_type: str = "คราบน้ำมัน",
+        raw_name: str = "oil",
         confirmation_hits: int = 3,
     ) -> None:
         self.track_id = track_id
@@ -249,12 +250,49 @@ class LockedOilTrack:
         self.confidence = conf
         self.area_pct = area_pct
         self.oil_type = oil_type
+        self.raw_name = raw_name
         self.first_seen = timestamp
         self.last_seen = timestamp
         self.velocity = [0.0, 0.0]
         self.hits = 1
         self.misses = 0
         self.confirmation_hits = max(1, confirmation_hits)
+        self.hist: np.ndarray | None = None
+        self.keep_layers: tuple[str, ...] = ("detect",)
+
+    @property
+    def is_confirmed(self) -> bool:
+        return self.hits >= self.confirmation_hits
+
+    def remember_appearance(self, image: np.ndarray) -> None:
+        hist = crop_hsv_hist(image, self.box)
+        if hist is None:
+            return
+        if self.hist is None:
+            self.hist = hist
+        else:
+            self.hist = 0.62 * hist + 0.38 * self.hist
+
+    def predicted_box(self, timestamp: float, img_w: int, img_h: int) -> list[float]:
+        dt = max(0.01, min(0.40, timestamp - self.last_seen))
+        dx = self.velocity[0] * dt
+        dy = self.velocity[1] * dt
+        return clamp_box(
+            [self.box[0] + dx, self.box[1] + dy, self.box[2] + dx, self.box[3] + dy],
+            img_w,
+            img_h,
+        )
+
+    def shift_points(self, dx: float, dy: float, img_w: int, img_h: int) -> list[dict[str, float]]:
+        shifted: list[dict[str, float]] = []
+        for point in self.points:
+            shifted.append(
+                {
+                    "x": round(min(float(img_w), max(0.0, float(point["x"]) + dx)), 1),
+                    "y": round(min(float(img_h), max(0.0, float(point["y"]) + dy)), 1),
+                }
+            )
+        return shifted
 
     def update(
         self,
@@ -263,8 +301,13 @@ class LockedOilTrack:
         conf: float,
         area_pct: float,
         timestamp: float,
-        alpha: float = 0.60,
+        alpha: float = 0.50,
+        image: np.ndarray | None = None,
+        layers: tuple[str, ...] = ("detect", "motion"),
     ) -> None:
+        self.hits += 1
+        self.misses = 0
+        self.keep_layers = layers
         dt = max(0.01, min(0.40, timestamp - self.last_seen))
         old_cx = (self.box[0] + self.box[2]) / 2.0
         old_cy = (self.box[1] + self.box[3]) / 2.0
@@ -273,26 +316,33 @@ class LockedOilTrack:
 
         inst_vx = (new_cx - old_cx) / dt
         inst_vy = (new_cy - old_cy) / dt
-        self.velocity[0] = 0.50 * inst_vx + 0.50 * self.velocity[0]
-        self.velocity[1] = 0.50 * inst_vy + 0.50 * self.velocity[1]
-        self.velocity[0] = max(-300.0, min(300.0, self.velocity[0]))
-        self.velocity[1] = max(-250.0, min(250.0, self.velocity[1]))
+        self.velocity[0] = 0.60 * inst_vx + 0.40 * self.velocity[0]
+        self.velocity[1] = 0.60 * inst_vy + 0.40 * self.velocity[1]
+        self.velocity[0] = max(-700.0, min(700.0, self.velocity[0]))
+        self.velocity[1] = max(-520.0, min(520.0, self.velocity[1]))
 
+        dx = abs(new_cx - old_cx)
+        dy = abs(new_cy - old_cy)
+        effective_alpha = 0.85 if (dx > 20.0 or dy > 20.0) else alpha
+        old_area = max(1.0, (self.box[2] - self.box[0]) * (self.box[3] - self.box[1]))
+        new_area = max(1.0, (box[2] - box[0]) * (box[3] - box[1]))
+        if new_area < 0.92 * old_area:
+            effective_alpha = max(effective_alpha, 0.84)
+
+        shifted = self.shift_points(new_cx - old_cx, new_cy - old_cy, 10000, 10000)
         self.box = [
-            alpha * new_v + (1.0 - alpha) * old_v
+            effective_alpha * new_v + (1.0 - effective_alpha) * old_v
             for new_v, old_v in zip(box, self.box)
         ]
         if points and len(points) >= 3:
             self.points = points
+        elif shifted:
+            self.points = shifted
         self.confidence = 0.70 * conf + 0.30 * self.confidence
-        self.area_pct = alpha * area_pct + (1.0 - alpha) * self.area_pct
+        self.area_pct = effective_alpha * area_pct + (1.0 - effective_alpha) * self.area_pct
         self.last_seen = timestamp
-        self.hits += 1
-        self.misses = 0
-
-    @property
-    def is_confirmed(self) -> bool:
-        return self.hits >= self.confirmation_hits
+        if image is not None:
+            self.remember_appearance(image)
 
 
 def clamp_box(box: list[float], img_w: int, img_h: int) -> list[float]:
@@ -358,7 +408,7 @@ def lock_class_compatible(target_name: str, det_name: str) -> bool:
     return True
 
 
-def compute_target_match_score(det: dict[str, Any], target: LockedTarget, now: float) -> float:
+def compute_target_match_score(det: dict[str, Any], target: LockedTarget | LockedOilTrack, now: float) -> float:
     """Sticky lock: ชิ้นที่ล็อกก่อนติดตอนแพน ห้ามกระโดดไปชิ้นข้าง ๆ"""
     det_box = det["box"]
     target_box = target.box
@@ -412,6 +462,57 @@ def is_same_object_overlap(
 ) -> bool:
     iou, ios = box_overlap_metrics(box_a, box_b)
     return (iou >= iou_th) or (ios >= ios_th)
+
+
+def is_plausible_oil_region(
+    image: np.ndarray,
+    box: list[float],
+    conf: float,
+    raw_name: str = "",
+) -> bool:
+    """ตัดผนัง ฝ้า ผ้าม่าน พื้นเรียบ — เหลือแต่ฟิล์ม/หยดที่สีไม่สม่ำเสมอ"""
+    img_h, img_w = image.shape[:2]
+    left, top, right, bottom = (float(v) for v in box)
+    box_w = max(1.0, right - left)
+    box_h = max(1.0, bottom - top)
+    if box_w < 10.0 or box_h < 10.0:
+        return False
+    if max(box_w / box_h, box_h / box_w) > 4.2:
+        return False
+
+    y0, y1 = int(max(0, top)), int(min(img_h, bottom))
+    x0, x1 = int(max(0, left)), int(min(img_w, right))
+    crop = image[y0:y1, x0:x1]
+    if crop.size == 0 or crop.shape[0] < 8 or crop.shape[1] < 8:
+        return False
+
+    hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+    hue, sat, val = cv2.split(hsv)
+    sat_mean = float(sat.mean())
+    sat_std = float(sat.std())
+    hue_std = float(hue.std())
+    val_mean = float(val.mean())
+    val_std = float(val.std())
+
+    if sat_std < 16.0 and hue_std < 14.0 and val_std < 24.0:
+        return False
+    if sat_mean < 42.0 and val_mean > 135.0 and hue_std < 16.0:
+        return False
+    if box_h > 2.3 * box_w and sat_std < 28.0:
+        return False
+
+    name = (raw_name or "").lower().strip()
+    if name in {"truecolor", "oil"} and val_mean > 145.0 and sat_mean < 80.0 and hue_std < 18.0:
+        return False
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+    edge_density = float(np.sum(edges > 0)) / max(1, edges.size)
+    if edge_density > 0.09 and conf < 0.70:
+        return False
+    if edge_density < 0.012 and sat_std < 22.0 and conf < 0.55:
+        return False
+    return True
 
 
 def is_edge_sliver_artifact(box: list[float], img_w: int, img_h: int, is_oil: bool = False) -> bool:
@@ -988,6 +1089,8 @@ class LocalTrashDetector:
         self._cached_oil_result = None
         self._cached_secondary_boxes: list[Any] = []
         self.inference_executor = ThreadPoolExecutor(max_workers=2) if parallel_inference else None
+        self._oil_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oil") if self.oil_model is not None else None
+        self._oil_future: Any | None = None
 
     def _predict_once(self, model: Any, image: np.ndarray, confidence: float) -> Any | None:
         results = model.predict(
@@ -1173,7 +1276,7 @@ class LocalTrashDetector:
 
         with self.lock:
             self._detect_tick += 1
-            # Trash every frame. Oil shares the CPU — run less often so trash stays snappy.
+            # ขยะทุกเฟรมบนเธรดหลัก — น้ำมันรันพื้นหลังแล้วส่งผลมาล็อก ไม่ฉุดเป้าขยะ
             run_aux = self._detect_tick % 8 == 0
             inference_jobs: dict[str, tuple[Any, float]] = {}
             if enable_trash and self.model is not None:
@@ -1184,10 +1287,7 @@ class LocalTrashDetector:
                 self.locked_target = None
                 self.primary_track_id = None
 
-            if enable_oil:
-                if run_aux and self.oil_model is not None:
-                    inference_jobs["oil"] = (self.oil_model, self.oil_confidence)
-            else:
+            if not enable_oil:
                 self.oil_tracks.clear()
                 self.locked_oil = None
                 self.primary_oil_track_id = None
@@ -1211,35 +1311,26 @@ class LocalTrashDetector:
                         print(f"[local-ai] {name} model inference warning: {err}", flush=True)
 
             result = inference_results.get("trash")
-            oil_result = inference_results.get("oil")
-            oil_fallback_result = inference_results.get("oil_fallback")
             secondary_result = inference_results.get("secondary")
             if secondary_result is not None and secondary_result.boxes is not None:
                 secondary_boxes = secondary_result.boxes
                 self._cached_secondary_boxes = secondary_boxes
             elif not run_aux:
                 secondary_boxes = self._cached_secondary_boxes
-            if run_aux:
-                self._cached_oil_result = oil_result
-            elif enable_oil:
-                oil_result = self._cached_oil_result
 
-            if (
-                run_aux
-                and enable_oil
-                and self.oil_fallback_model is not None
-                and oil_result is not None
-                and oil_result.boxes is not None
-                and len(oil_result.boxes) == 0
-                and (time.perf_counter() - started) < 0.28
-            ):
-                if oil_fallback_result is not None:
-                    oil_result = oil_fallback_result
-                else:
+            oil_result = None
+            if enable_oil and self.oil_model is not None:
+                if self._oil_future is not None and self._oil_future.done():
                     try:
-                        oil_result = self._predict_once(self.oil_fallback_model, image, self.oil_confidence)
+                        oil_result = self._oil_future.result()
+                        self._cached_oil_result = oil_result
                     except Exception as err:
-                        print(f"[local-ai] Oil fallback model inference warning: {err}", flush=True)
+                        print(f"[local-ai] oil model inference warning: {err}", flush=True)
+                    self._oil_future = None
+                if self._oil_future is None and self._oil_executor is not None:
+                    self._oil_future = self._oil_executor.submit(
+                        self._predict_once, self.oil_model, image.copy(), self.oil_confidence
+                    )
 
             self.frame_id += 1
             frame_id = self.frame_id
@@ -1247,8 +1338,9 @@ class LocalTrashDetector:
 
         # สกัดกล่องคราบน้ำมันดิบสำหรับตรวจสอบการทับซ้อนกับขยะ (Cross-Model Overlap Filter)
         current_oil_boxes: list[list[float]] = []
-        if oil_result is not None and oil_result.boxes is not None and len(oil_result.boxes) > 0:
-            for ob in oil_result.boxes:
+        oil_box_source = oil_result if oil_result is not None else self._cached_oil_result
+        if oil_box_source is not None and oil_box_source.boxes is not None and len(oil_box_source.boxes) > 0:
+            for ob in oil_box_source.boxes:
                 current_oil_boxes.append([float(v) for v in ob.xyxy[0].tolist()])
 
         # --- A. ประมวลผลและกรองขยะ (Trash Detection Standard) ---
@@ -1531,8 +1623,8 @@ class LocalTrashDetector:
                         continue
                     if box_w < 8.0 or box_h < 8.0:
                         continue
-                    # กรองเส้นลวงยาวแคบผิดปกติ (Tile seam, grout lines, ceiling grooves)
-                    if (box_w / (box_h + 1e-4) > 3.8) or (box_h / (box_w + 1e-4) > 3.8):
+                    # กรองเส้นลวงยาวแคบผิดปกติ — ฟิล์มบางบนน้ำยาวได้มากกว่ากระเบื้อง
+                    if (box_w / (box_h + 1e-4) > 6.0) or (box_h / (box_w + 1e-4) > 6.0):
                         continue
                     if is_edge_sliver_artifact([left, top, right, bottom], img_w, img_h, is_oil=True):
                         continue
@@ -1559,15 +1651,8 @@ class LocalTrashDetector:
                     area_pct = round(((box_w * box_h) / (img_w * img_h)) * 100, 2)
                     if area_pct > 50.0:
                         continue
-
-                    # กรองแป้นพิมพ์คีย์บอร์ดและลายตารางแห้ง (Keyboard / Dense Grid False Positives)
-                    oil_crop = image[int(max(0, top)):int(min(img_h, bottom)), int(max(0, left)):int(min(img_w, right))]
-                    if oil_crop.size > 0:
-                        o_gray = cv2.cvtColor(oil_crop, cv2.COLOR_BGR2GRAY)
-                        o_edges = cv2.Canny(o_gray, 50, 150)
-                        o_edge_density = float(np.sum(o_edges > 0)) / o_edges.size
-                        if o_edge_density > 0.09 and conf < 0.70:
-                            continue
+                    if not is_plausible_oil_region(image, [left, top, right, bottom], conf, raw_name):
+                        continue
 
                     raw_oil_detections.append(
                         {
@@ -1591,87 +1676,130 @@ class LocalTrashDetector:
                 ):
                     deduped_oil_detections.append(det)
 
-            # --- ระบบหน่วงและจำตำแหน่งคราบน้ำมัน (Sticky Visual Servoing & Hold Timeout) ---
-            matched_track_ids = set()
-            used_det_indices = set()
+            max_oil_regions = min(5, getattr(self, "max_oil_targets", 5))
+            oil_hold = max(0.28, float(self.oil_hold_timeout))
+            matched_track_ids: set[int] = set()
+            used_det_indices: set[int] = set()
 
-            # 1. จับคู่ผลตรวจจับใหม่เข้ากับรอยคราบ/หยดน้ำมันเดิมในหน่วยความจำ
             for track_id, track in list(self.oil_tracks.items()):
-                best_match_idx = None
-                best_dist = math.inf
+                if trash_center_left_view(track.box, img_w, img_h) or not is_plausible_oil_region(
+                    image, track.box, track.confidence, track.raw_name
+                ):
+                    del self.oil_tracks[track_id]
+
+            for track_id, track in list(self.oil_tracks.items()):
+                ranked: list[tuple[float, int, float]] = []
                 for d_idx, det in enumerate(deduped_oil_detections):
                     if d_idx in used_det_indices:
                         continue
-                    iou, _ = box_overlap_metrics(det["box"], track.box)
+                    geo = compute_target_match_score(det, track, now)
+                    appearance = hist_corr(track.hist, crop_hsv_hist(image, det["box"]))
                     det_cx = (det["box"][0] + det["box"][2]) / 2.0
                     det_cy = (det["box"][1] + det["box"][3]) / 2.0
-                    trk_cx = (track.box[0] + track.box[2]) / 2.0
-                    trk_cy = (track.box[1] + track.box[3]) / 2.0
-                    dist = math.hypot(det_cx - trk_cx, det_cy - trk_cy)
-                    if (iou >= 0.20 or dist <= 50.0) and dist < best_dist:
-                        best_match_idx = d_idx
-                        best_dist = dist
-
-                if best_match_idx is not None:
-                    matched_det = deduped_oil_detections[best_match_idx]
+                    tgt_cx = (track.box[0] + track.box[2]) / 2.0
+                    tgt_cy = (track.box[1] + track.box[3]) / 2.0
+                    w_tgt = max(1.0, track.box[2] - track.box[0])
+                    h_tgt = max(1.0, track.box[3] - track.box[1])
+                    near = abs(det_cx - tgt_cx) < max(130.0, w_tgt * 1.6) and abs(det_cy - tgt_cy) < max(110.0, h_tgt * 1.6)
+                    if geo < 0.12 and not (appearance >= 0.50 and near):
+                        continue
+                    fused = 0.50 * max(geo, 0.0) + 0.50 * max(appearance, 0.0)
+                    if fused < 0.18 and not (appearance >= 0.55 and near):
+                        continue
+                    ranked.append((fused, d_idx, appearance))
+                if ranked:
+                    _fused, best_idx, appearance = max(ranked)
+                    matched = deduped_oil_detections[best_idx]
+                    layers: tuple[str, ...] = ("detect", "motion")
+                    if appearance >= 0.45:
+                        layers = ("detect", "motion", "appearance")
                     track.update(
-                        matched_det["box"],
-                        matched_det["points"],
-                        matched_det["conf"],
-                        matched_det["area_pct"],
+                        matched["box"],
+                        matched["points"],
+                        matched["conf"],
+                        matched["area_pct"],
                         now,
                         alpha=self.alpha,
+                        image=image,
+                        layers=layers,
+                    )
+                    track.raw_name = str(matched.get("raw_name", track.raw_name))
+                    track.oil_type = str(matched.get("oil_type", track.oil_type))
+                    matched_track_ids.add(track_id)
+                    used_det_indices.add(best_idx)
+                    continue
+
+                pred_box = track.predicted_box(now, img_w, img_h)
+                coast_app = hist_corr(track.hist, crop_hsv_hist(image, pred_box))
+                still_in_view = not trash_center_left_view(pred_box, img_w, img_h)
+                if (
+                    still_in_view
+                    and coast_app >= 0.45
+                    and is_plausible_oil_region(image, pred_box, track.confidence, track.raw_name)
+                ):
+                    pred_area = ((pred_box[2] - pred_box[0]) * (pred_box[3] - pred_box[1]) / (img_w * img_h)) * 100
+                    track.update(
+                        pred_box,
+                        [],
+                        max(0.30, float(track.confidence) * 0.94),
+                        pred_area,
+                        now,
+                        alpha=0.32,
+                        image=image,
+                        layers=("appearance", "hold"),
                     )
                     matched_track_ids.add(track_id)
-                    used_det_indices.add(best_match_idx)
-
-            # 2. เพิ่มคราบน้ำมันจุดใหม่ที่ไม่ตรงกับจุดเดิม
-            for d_idx, det in enumerate(deduped_oil_detections):
-                if d_idx not in used_det_indices:
-                    t_id = self.next_oil_track_id
-                    self.next_oil_track_id += 1
-                    new_track = LockedOilTrack(
-                        track_id=t_id,
-                        box=det["box"],
-                        points=det["points"],
-                        conf=det["conf"],
-                        area_pct=det["area_pct"],
-                        timestamp=now,
-                        oil_type=det["oil_type"],
-                        confirmation_hits=self.oil_confirmation_hits,
-                    )
-                    self.oil_tracks[t_id] = new_track
-                    matched_track_ids.add(t_id)
-
-            # 3. ตรวจสอบและหน่วงเวลาเป้าหมายที่มองไม่เห็นชั่วคราว (Hold Timeout & Anti-Ghost Confirmation)
-            active_tracks = []
-            for track_id, track in list(self.oil_tracks.items()):
-                if track_id not in matched_track_ids:
+                elif still_in_view and (now - track.last_seen) <= oil_hold:
                     track.misses += 1
-                elapsed_hold = now - track.last_seen
-
-                # หากเป็นเป้าหมายชั่วคราว 1 เฟรมที่ยังไม่ยืนยัน และเฟรมนี้ไม่เจอซ้ำ ให้ลบทันที ป้องกันภาพหลอนลอยค้าง
-                if not track.is_confirmed and elapsed_hold > 0.15:
-                    del self.oil_tracks[track_id]
-                elif elapsed_hold > self.oil_hold_timeout:
-                    del self.oil_tracks[track_id]
+                    track.keep_layers = ("hold",)
+                    matched_track_ids.add(track_id)
                 else:
-                    active_tracks.append((track_id, track, elapsed_hold))
+                    del self.oil_tracks[track_id]
 
-            # จำกัดจำนวนตรวจพบคราบน้ำมันไม่เกิน 5 จุดตามคำสั่งผู้ใช้ ป้องกันความแออัดและตรวจจับมั่ว
-            max_oil_regions = min(5, getattr(self, "max_oil_targets", 5))
-            # คัดเฉพาะเป้าหมายที่ได้รับการยืนยันแล้ว และมีค่าความมั่นใจที่เหมาะสม
+            open_slots = max(0, max_oil_regions - len(self.oil_tracks))
+            for d_idx, det in enumerate(deduped_oil_detections):
+                if open_slots <= 0:
+                    break
+                if d_idx in used_det_indices:
+                    continue
+                if any(
+                    is_same_object_overlap(det["box"], track.box, iou_th=0.25, ios_th=0.35)
+                    for track in self.oil_tracks.values()
+                ):
+                    continue
+                t_id = self.next_oil_track_id
+                self.next_oil_track_id += 1
+                new_track = LockedOilTrack(
+                    track_id=t_id,
+                    box=det["box"],
+                    points=det["points"],
+                    conf=det["conf"],
+                    area_pct=det["area_pct"],
+                    timestamp=now,
+                    oil_type=det["oil_type"],
+                    raw_name=str(det.get("raw_name", "oil")),
+                    confirmation_hits=self.oil_confirmation_hits,
+                )
+                new_track.remember_appearance(image)
+                new_track.keep_layers = ("detect", "motion", "appearance")
+                self.oil_tracks[t_id] = new_track
+                matched_track_ids.add(t_id)
+                open_slots -= 1
+
             valid_tracks = [
-                item for item in active_tracks
-                if item[1].is_confirmed and item[1].confidence >= 0.20
+                (track_id, track, now - track.last_seen)
+                for track_id, track in self.oil_tracks.items()
+                if track.is_confirmed and track.confidence >= max(0.32, float(self.oil_confidence) * 0.85)
             ]
             valid_tracks.sort(key=lambda item: item[1].confidence, reverse=True)
 
             for t_id, track, elapsed_hold in valid_tracks[:max_oil_regions]:
-                status = "DETECTED" if t_id in matched_track_ids else "TRACKED"
+                status = "DETECTED" if t_id in matched_track_ids and "hold" not in track.keep_layers else "TRACKED"
+                if "detect" in track.keep_layers:
+                    status = "DETECTED"
                 conf = track.confidence
                 if status == "TRACKED":
-                    decay = max(0.0, 1.0 - (elapsed_hold / self.oil_hold_timeout) * 0.25)
+                    decay = max(0.0, 1.0 - (elapsed_hold / max(oil_hold, 1e-3)) * 0.25)
                     conf = max(0.20, conf * decay)
 
                 left, top, right, bottom = track.box
@@ -1683,7 +1811,7 @@ class LocalTrashDetector:
                         "class_id": 0,
                         "class_name": "คราบน้ำมัน",
                         "class_name_en": "Oil Spill",
-                        "raw_class_name": "oil",
+                        "raw_class_name": track.raw_name,
                         "oil_type": track.oil_type,
                         "type": "oil",
                         "confidence": float(conf),
@@ -1696,6 +1824,7 @@ class LocalTrashDetector:
                         "height": bottom - top,
                         "points": track.points,
                         "area_pct": track.area_pct,
+                        "lock_layers": list(track.keep_layers),
                     }
                 )
 
@@ -1840,6 +1969,7 @@ class LocalTrashDetector:
             "inference_imgsz": self.image_size,
             "parallel_inference": self.parallel_inference,
             "max_targets": self.max_targets,
+            "max_oil_targets": self.max_oil_targets,
             "hold_timeout": self.hold_timeout,
             "oil_hold_timeout": self.oil_hold_timeout,
             "confirmation_hits": self.confirmation_hits,
@@ -1946,8 +2076,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--oil-hold",
         type=float,
-        default=1.80,
-        help="Temporary lost hold timeout for oil in seconds (default: 1.80)",
+        default=0.32,
+        help="Temporary lost hold timeout for oil in seconds (default: 0.32, shake-off like trash)",
     )
     parser.add_argument("--alpha", type=float, default=0.50, help="Exponential moving average factor for box smoothing")
     parser.add_argument(

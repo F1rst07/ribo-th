@@ -60,8 +60,9 @@ export function parseDetections(value: unknown, width: number, height: number): 
     const boxHeight = Number(record.height);
     const confidence = Number(record.confidence);
     const classId = Number.isInteger(record.class_id) ? (record.class_id as number) : 0;
-    const className = "ขยะ";
-    const classNameEn = "Trash";
+    const isOilRecord = record.type === "oil" || (typeof record.class_name === "string" && record.class_name.includes("น้ำมัน"));
+    const className = isOilRecord ? "คราบน้ำมัน" : "ขยะ";
+    const classNameEn = isOilRecord ? "Oil Spill" : "Trash";
     const rawClassName = typeof record.raw_class_name === "string" ? record.raw_class_name : "unknown";
     const rawTrackId = record.track_id ?? record.trackId;
     const parsedId = typeof rawTrackId === "number" ? Math.round(rawTrackId) : parseInt(String(rawTrackId), 10);
@@ -72,7 +73,6 @@ export function parseDetections(value: unknown, width: number, height: number): 
       confidence < 0.05 || confidence > 1 || boxWidth <= 0 || boxHeight <= 0) return [];
 
     // กรองกรอบที่ครอบเกือบเต็มทั้งจอออก (ป้องกัน Background False Positive ครอบทั้งห้อง/ผนัง)
-    const isOilRecord = record.type === "oil" || (typeof record.class_name === "string" && record.class_name.includes("น้ำมัน"));
     if (isOilRecord) {
       if ((boxWidth >= 0.85 * width && boxHeight >= 0.70 * height) || (boxWidth * boxHeight >= 0.50 * width * height)) return [];
     } else if ((boxWidth >= 0.80 * width && boxHeight >= 0.80 * height) || (boxWidth * boxHeight >= 0.60 * width * height)) {

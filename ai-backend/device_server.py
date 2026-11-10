@@ -224,17 +224,18 @@ if __name__ == "__main__":
         secondary_model_path=None,
         oil_fallback_path=None,
         confidence=0.15,
-        oil_confidence=0.36,
+        oil_confidence=0.42,
         image_size=320,
         hold_timeout=0.32,
         max_targets=1,
-        oil_hold_timeout=0.50,
+        max_oil_targets=5,
+        oil_hold_timeout=0.32,
         confirmation_hits=1,
         oil_confirmation_hits=1,
         parallel_inference=False,
     )
     if Handler.detector.oil_model is None:
-        raise RuntimeError("Oil model must load before the service becomes ready")
+        print("[device] oil model not loaded — trash-only until a new oil set is installed", flush=True)
     Handler.streamer = CameraStreamer()
     Handler.streamer.start()
     threading.Thread(target=_infer_loop, name="ribo-infer", daemon=True).start()

@@ -322,7 +322,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
     appendLog(
       "INFO",
       lang === "th"
-        ? enabled ? "เปิดใช้งานโมเดลตรวจจับคราบน้ำมัน (Oil AI : YOLO11n-seg)" : "ปิดการใช้งานโมเดลตรวจจับคราบน้ำมัน (Oil AI)"
+        ? enabled ? "เปิดใช้งานโมเดลตรวจจับคราบน้ำมัน (Oil AI : YOLO-seg 5 เป้า)" : "ปิดการใช้งานโมเดลตรวจจับคราบน้ำมัน (Oil AI)"
         : enabled ? "Oil detection model enabled (Oil AI : YOLO11n-seg)" : "Oil detection model disabled"
     );
   }, [lang, appendLog]);
