@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default function HomePage() {
   return (
     <DashboardView
-      controlAvailable={process.env.RIBO_DEVICE_MODE !== "true"}
+      controlAvailable={true}
       macAiMode={process.env.RIBO_MAC_AI === "true"}
     />
   );

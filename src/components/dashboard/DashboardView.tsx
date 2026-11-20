@@ -521,8 +521,8 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       appendLog(
         "INFO",
         lang === "th"
-          ? "[AUTO] เริ่มต้นระบบนำทางอัตโนมัติ — กำลังสแกนหาขยะในระยะกล้อง"
-          : "[AUTO] Autonomous navigation started — Scanning for trash targets"
+          ? "[AUTO] ระบบนำทางอัตโนมัติ : กำลังสแกนหาขยะในระยะกล้อง"
+          : "[AUTO] Autonomous navigation : Scanning for trash targets"
       );
     }
 
@@ -988,8 +988,8 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       appendLog(
         "ERROR",
         lang === "th"
-          ? "⛔ กดปุ่มหยุดฉุกเฉิน (E-STOP) — ระงับทุกระบบทันที"
-          : "⛔ Emergency Stop (E-STOP) triggered — All systems halted"
+          ? "⛔ กดปุ่มหยุดฉุกเฉิน (E-STOP) : ระงับทุกระบบทันที"
+          : "⛔ Emergency Stop (E-STOP) : All systems halted"
       );
     } else {
       // กดปลดล็อก (Reset)

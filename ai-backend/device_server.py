@@ -1,11 +1,13 @@
-"""On-board camera and inference service; never actuates from detections.
+"""On-board camera and inference service.
 
-The MCU bridge is deliberately unavailable until a verified vessel firmware
-and its pin mapping are installed. Never report simulated motor success.
+Movement commands are written to the UNO Q monitor link for the MCU.
+Detections never actuate the relays. A command is successful only after
+the MCU acknowledges it.
 """
 import base64
 import json
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -18,6 +20,63 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 from server import LocalTrashDetector, MAX_IMAGE_LENGTH
 from device_camera import CameraStreamer
+
+MCU_MONITOR = ("127.0.0.1", 7500)
+MOTOR_COMMANDS = {
+    "CMD:MOVE:FORWARD",
+    "CMD:MOVE:BACK",
+    "CMD:MOVE:LEFT",
+    "CMD:MOVE:RIGHT",
+    "CMD:MOVE:STOP",
+    "CMD:ESTOP:ACTIVE",
+    "CMD:ESTOP:RESET",
+    "CMD:INIT",
+    "CMD:DISCONNECT",
+    "CMD:MODE:AUTO",
+    "CMD:MODE:MANUAL",
+    "CMD:OIL:START",
+    "CMD:OIL:STOP",
+    "CMD:PUMP:ON",
+    "CMD:PUMP:OFF",
+}
+_mcu_lock = threading.Lock()
+_mcu_sock: socket.socket | None = None
+
+
+def send_motor_command(command: str) -> None:
+    global _mcu_sock
+    line = command.strip()
+    if line not in MOTOR_COMMANDS:
+        raise ValueError(line)
+    payload = (line + "\n").encode()
+    ack = f"ACK {line}".encode()
+    last_error: Exception | None = None
+    with _mcu_lock:
+        for _ in range(2):
+            try:
+                if _mcu_sock is None:
+                    _mcu_sock = socket.create_connection(MCU_MONITOR, timeout=1.5)
+                    _mcu_sock.settimeout(1.5)
+                _mcu_sock.sendall(payload)
+                buf = b""
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    chunk = _mcu_sock.recv(256)
+                    if not chunk:
+                        raise ConnectionError("monitor closed")
+                    buf += chunk
+                    if ack in buf:
+                        return
+                raise TimeoutError("no ack")
+            except (OSError, TimeoutError) as error:
+                last_error = error
+                if _mcu_sock is not None:
+                    try:
+                        _mcu_sock.close()
+                    except OSError:
+                        pass
+                    _mcu_sock = None
+        raise last_error if last_error else ConnectionError("mcu")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -154,7 +213,14 @@ class Handler(BaseHTTPRequestHandler):
             if command.startswith("WIFI:CONNECT:"):
                 ssid = command.split(":", 2)[-1].strip() or str(data.get("ssid", "")).strip()
                 return self.connect_wifi(ssid, data.get("password"))
-            return self.json(503, {"success": False, "error": "MCU control unavailable; no command was sent"})
+            if command not in MOTOR_COMMANDS:
+                return self.json(501, {"success": False, "error": "This firmware drives the motor relays and the pin 8 pump"})
+            try:
+                send_motor_command(command)
+            except (OSError, TimeoutError, ConnectionError) as error:
+                print(f"[device] mcu command failed: {type(error).__name__}", flush=True)
+                return self.json(503, {"success": False, "error": "MCU did not acknowledge the command"})
+            return self.json(200, {"success": True, "command": command})
         if path != "/detect":
             return self.json(404, {"error": "Not found"})
         length = int(self.headers.get("Content-Length", "0") or "0")
