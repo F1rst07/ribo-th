@@ -3,6 +3,9 @@ const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
   distDir: process.env.RIBO_BUILD_DIR || ".next",
+  experimental: {
+    agentUpgrade: "security",
+  },
 };
 
 export default nextConfig;

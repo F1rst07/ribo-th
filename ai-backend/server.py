@@ -1480,25 +1480,9 @@ class LocalTrashDetector:
                 )
             else:
                 pred_box = self.locked_target.predicted_box(now, img_w, img_h)
-                coast_app = hist_corr(self.locked_target.hist, crop_hsv_hist(image, pred_box))
                 still_in_view = not trash_center_left_view(pred_box, img_w, img_h)
-                # ลายชิ้นเดิมยังอยู่ที่จุดที่คาด = แพนตามเป้า ล็อกต่อ; สะบัดไปฉากใหม่ลายไม่ตรง = ปล่อยทันที
-                if still_in_view and coast_app >= 0.45:
-                    self.locked_target.update(
-                        pred_box,
-                        max(0.30, float(self.locked_target.confidence) * 0.94),
-                        now,
-                        alpha=0.32,
-                        image=image,
-                        layers=("appearance", "hold"),
-                    )
-                    matched_det = {
-                        "class_id": self.locked_target.class_id,
-                        "raw_name": self.locked_target.raw_name,
-                        "conf": self.locked_target.confidence,
-                        "box": list(self.locked_target.box),
-                    }
-                elif still_in_view and (now - self.locked_target.last_seen) <= max(0.28, float(self.hold_timeout)):
+                # ไม่ลากกรอบจากสีพื้นเมื่อโมเดลไม่เห็นขยะแล้ว พื้นลายซ้ำจะโดนจับมั่วที่ความมั่นใจ 30%
+                if still_in_view and (now - self.locked_target.last_seen) <= max(0.28, float(self.hold_timeout)):
                     self.locked_target.misses += 1
                     self.locked_target.keep_layers = ("hold",)
                     matched_det = {

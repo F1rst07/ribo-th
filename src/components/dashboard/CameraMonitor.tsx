@@ -483,12 +483,6 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             </small>
           </>
         )}
-
-        {/* HUD Viewfinder Corners */}
-        <div className={styles.viewfinderTL} aria-hidden="true" />
-        <div className={styles.viewfinderTR} aria-hidden="true" />
-        <div className={styles.viewfinderBL} aria-hidden="true" />
-        <div className={styles.viewfinderBR} aria-hidden="true" />
       </div>
     </section>
   );

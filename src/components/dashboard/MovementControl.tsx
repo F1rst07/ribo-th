@@ -31,7 +31,6 @@ export const MovementControl: React.FC<MovementControlProps> = ({
   onMove,
   autoDirection,
   autoStatusText,
-  collectedCount = 0,
 }) => {
   const [activeDirection, setActiveDirection] = useState<string | null>(null);
 
@@ -223,19 +222,6 @@ export const MovementControl: React.FC<MovementControlProps> = ({
                 {t.autoNavActive}
               </span>
             </div>
-            <span
-              style={{
-                fontSize: "11px",
-                fontWeight: 700,
-                color: "#28a745",
-                backgroundColor: "rgba(40, 167, 69, 0.15)",
-                padding: "1px 7px",
-                borderRadius: "4px",
-                border: "1px solid rgba(40, 167, 69, 0.3)",
-              }}
-            >
-              {t.collectedCountLabel}{collectedCount}
-            </span>
           </div>
           <div
             style={{

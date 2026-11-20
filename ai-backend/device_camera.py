@@ -72,7 +72,7 @@ class CameraStreamer:
                     if ret and frame is not None and frame.shape[0] > 0:
                         self.cap = cap
                         self.device_index = idx
-                        self.device_name = f"Logitech C270 (/dev/video{idx})"
+                        self.device_name = "Logitech C270"
                         print(f"[UnoQ Camera] Successfully connected to video device {idx}")
                         return True
                     cap.release()

@@ -573,46 +573,6 @@ a.btnOpenBoard {
   z-index: 1;
 }
 
-.viewfinderTL,
-.viewfinderTR,
-.viewfinderBL,
-.viewfinderBR {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border-color: #3e4f5d;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.viewfinderTL {
-  top: 8px;
-  left: 8px;
-  border-top: 2px solid #3e4f5d;
-  border-left: 2px solid #3e4f5d;
-}
-
-.viewfinderTR {
-  top: 8px;
-  right: 8px;
-  border-top: 2px solid #3e4f5d;
-  border-right: 2px solid #3e4f5d;
-}
-
-.viewfinderBL {
-  bottom: 8px;
-  left: 8px;
-  border-bottom: 2px solid #3e4f5d;
-  border-left: 2px solid #3e4f5d;
-}
-
-.viewfinderBR {
-  bottom: 8px;
-  right: 8px;
-  border-bottom: 2px solid #3e4f5d;
-  border-right: 2px solid #3e4f5d;
-}
-
 /* AI Detection Overlay & Bounding Boxes */
 .detectionOverlay {
   position: absolute;

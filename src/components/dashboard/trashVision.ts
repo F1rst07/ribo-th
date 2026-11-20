@@ -71,6 +71,7 @@ export function parseDetections(value: unknown, width: number, height: number): 
 
     if (![x, y, boxWidth, boxHeight, confidence].every(Number.isFinite) ||
       confidence < 0.05 || confidence > 1 || boxWidth <= 0 || boxHeight <= 0) return [];
+    if (!isOilRecord && confidence < 0.40) return [];
 
     // กรองกรอบที่ครอบเกือบเต็มทั้งจอออก (ป้องกัน Background False Positive ครอบทั้งห้อง/ผนัง)
     if (isOilRecord) {
@@ -141,7 +142,7 @@ export function parseDetections(value: unknown, width: number, height: number): 
       type: rawType,
       points,
       areaPct,
-      autoEligible: rawType === "oil" ? record.auto_eligible === true : true,
+      autoEligible: true,
     }];
   });
 

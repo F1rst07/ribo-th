@@ -289,7 +289,7 @@ if __name__ == "__main__":
         oil_model_path=_existing(root / "oil_best.onnx"),
         secondary_model_path=None,
         oil_fallback_path=None,
-        confidence=0.15,
+        confidence=0.40,
         oil_confidence=0.42,
         image_size=320,
         hold_timeout=0.32,

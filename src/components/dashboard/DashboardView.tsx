@@ -32,6 +32,19 @@ import {
 import styles from "./dashboard.module.css";
 import { AutoTargetGate } from "./autoTargetGate";
 import {
+  advanceMission,
+  advanceOilAlign,
+  advanceSearch,
+  beginMission,
+  beginSearch,
+  COLLECT_GONE_MS,
+  INTAKE_Y,
+  OIL_SPRAY_MS,
+  pauseMission,
+  type MissionClock,
+  type SearchState,
+} from "./autoNav";
+import {
   BOARD_MDNS_HOST,
   CLOUD_LAUNCHER_URL,
   DEFAULT_BOARD_IP,
@@ -52,6 +65,25 @@ const isBoardDashboardHost = (hostname: string) =>
   /^192\.168\./.test(hostname) ||
   /^10\./.test(hostname) ||
   /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+
+const OIL_MATCH_PX = 180;
+
+function isOilItem(item: TrashDetection) {
+  return item.type === "oil" || (typeof item.className === "string" && item.className.includes("น้ำมัน"));
+}
+
+function oilDistance2(mark: { x: number; y: number }, item: TrashDetection) {
+  const dx = item.pixelX - mark.x;
+  const dy = item.pixelY - mark.y;
+  return dx * dx + dy * dy;
+}
+
+function coversSprayedOil(mark: { x: number; y: number }, item: TrashDetection) {
+  if (oilDistance2(mark, item) <= OIL_MATCH_PX * OIL_MATCH_PX) return true;
+  const halfW = (item.width / 100) * 320 + 40;
+  const halfH = (item.height / 100) * 240 + 40;
+  return Math.abs(item.pixelX - mark.x) <= halfW && Math.abs(item.pixelY - mark.y) <= halfH;
+}
 
 export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: boolean }> = ({
   controlAvailable = true,
@@ -186,14 +218,23 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
   const [autoStatusText, setAutoStatusText] = useState<string>("");
 
   const navStateRef = useRef<
-    "IDLE" | "SEARCHING" | "ALIGNING" | "APPROACHING" | "COLLECTING" | "REVERSING" | "STABILIZING"
+    "IDLE" | "SEARCHING" | "SPIN_SEARCH" | "ALIGNING" | "APPROACHING" | "COLLECTING" | "SPRAYING" | "RESTING" | "REVERSING" | "STABILIZING"
   >("IDLE");
+  const searchRef = useRef<SearchState | null>(null);
+  const missionRef = useRef<MissionClock | null>(null);
+  const missionPhaseRef = useRef<string>("");
   const stateStartTimeRef = useRef<number>(0);
   const lastSentCommandRef = useRef<string | null>(null);
   const lastSentTimeRef = useRef<number>(0);
   const lastLoggedAutoDirRef = useRef<string | null>(null);
   const lastTargetPosRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastTargetTrackIdRef = useRef<number | null>(null);
+  const collectTrackRef = useRef<string | null>(null);
+  const collectGoneAtRef = useRef<number | null>(null);
+  const oilPumpOnRef = useRef(false);
+  const sprayedOilRef = useRef<{ key: string; x: number; y: number; missingSince: number | null }[]>([]);
+  const oilSprayTargetRef = useRef<{ key: string; x: number; y: number } | null>(null);
+  const restKindRef = useRef<"trash" | "oil">("trash");
 
   const appendLog = useCallback(
     (type: LogEntry["type"], message: string) => {
@@ -497,9 +538,26 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
 
   // ระบบนำทางอัตโนมัติตามพิกัดภาพ (Autonomous Visual Servoing Navigation Loop)
   useEffect(() => {
+    const stopOilPump = () => {
+      if (!oilPumpOnRef.current) return;
+      oilPumpOnRef.current = false;
+      setIsOilRunning(false);
+      if (isConnected) {
+        sendCommandToArduino("CMD:OIL:STOP");
+        appendLog("CMD", lang === "th" ? "[AUTO] ปิดพ่นน้ำมัน" : "[AUTO] Stop oil spray");
+      }
+    };
+
     // หากไม่อยู่ในโหมดอัตโนมัติ หรือยังไม่ได้เชื่อมต่อ หรือติดสถานะ E-STOP ให้หยุดการนำทางทันที
     if (mode !== "auto" || !isConnected || isLocked || !controlAvailable) {
+      stopOilPump();
       autoTargetGate.current.reset();
+      searchRef.current = null;
+      missionRef.current = null;
+      missionPhaseRef.current = "";
+      collectTrackRef.current = null;
+      collectGoneAtRef.current = null;
+      oilSprayTargetRef.current = null;
       if (navStateRef.current !== "IDLE") {
         navStateRef.current = "IDLE";
         setAutoDirection(null);
@@ -542,23 +600,218 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
           sendCommandToArduino(cmd);
         }
 
-        if (dir !== lastLoggedAutoDirRef.current) {
-          lastLoggedAutoDirRef.current = dir;
+        const logKey = dirLabel || dir || "";
+        if (logKey !== lastLoggedAutoDirRef.current) {
+          lastLoggedAutoDirRef.current = logKey;
           if (dirLabel) {
             appendLog(
               "CMD",
               lang === "th"
                 ? `[AUTO] สั่งการเคลื่อนที่ : ${dirLabel}`
-                : `[AUTO] Command Move : ${cmd.replace("CMD:MOVE:", "")}`
+                : `[AUTO] Command Move : ${cmd === "CMD:MOVE:STOP" ? dirLabel : cmd.replace("CMD:MOVE:", "")}`
             );
           }
         }
       };
+      const startOilPump = () => {
+        if (oilPumpOnRef.current) return;
+        oilPumpOnRef.current = true;
+        setIsOilRunning(true);
+        sendCommandToArduino("CMD:OIL:START");
+        appendLog("CMD", lang === "th" ? "[AUTO] เปิดพ่นน้ำมัน" : "[AUTO] Start oil spray");
+        lastLoggedAutoDirRef.current = lang === "th" ? "เปิดพ่นน้ำมัน" : "Start oil spray";
+      };
+      const stopOilPumpNow = () => {
+        if (!oilPumpOnRef.current) return;
+        oilPumpOnRef.current = false;
+        setIsOilRunning(false);
+        sendCommandToArduino("CMD:OIL:STOP");
+        appendLog("CMD", lang === "th" ? "[AUTO] ปิดพ่นน้ำมัน" : "[AUTO] Stop oil spray");
+        lastLoggedAutoDirRef.current = lang === "th" ? "ปิดพ่นน้ำมัน" : "Stop oil spray";
+      };
 
       const vision = visionInput.current;
+      const frameReady = vision.status === "ready" && now - vision.receivedAt <= 1500;
+      if (frameReady) {
+        const oils = vision.items.filter((item) =>
+          isOilItem(item) &&
+          enableOilModel &&
+          (item.status === "DETECTED" || item.status === "TRACKED"));
+        const nextMarks: { key: string; x: number; y: number; missingSince: number | null }[] = [];
+        const used = new Set<number>();
+        for (const mark of sprayedOilRef.current) {
+          let bestIndex = -1;
+          let bestDist = Number.POSITIVE_INFINITY;
+          oils.forEach((oil, index) => {
+            if (used.has(index) || !coversSprayedOil(mark, oil)) return;
+            const dist = oilDistance2(mark, oil);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestIndex = index;
+            }
+          });
+          if (bestIndex >= 0) {
+            used.add(bestIndex);
+            const oil = oils[bestIndex];
+            nextMarks.push({ key: `oil:${oil.trackId}`, x: oil.pixelX, y: oil.pixelY, missingSince: null });
+          } else if (mark.missingSince === null) {
+            nextMarks.push({ ...mark, missingSince: now });
+          } else if (now - mark.missingSince < 500) {
+            nextMarks.push(mark);
+          }
+        }
+        sprayedOilRef.current = nextMarks;
+      }
+
+      if (navStateRef.current === "RESTING") {
+        const elapsed = now - stateStartTimeRef.current;
+        if (elapsed < 3000) {
+          sendAutoMove(null, "CMD:MOVE:STOP", lang === "th" ? "พักอยู่" : "Resting");
+          setAutoStatusText(restKindRef.current === "oil"
+            ? (lang === "th" ? "พักหลังพ่นน้ำมัน : รีเลย์ดับ 3 วินาที" : "Rest after spraying : relays off for 3 seconds")
+            : (lang === "th" ? "พักหลังเก็บ 1 ชิ้น : รีเลย์ดับ 3 วินาที" : "Rest after one piece : relays off for 3 seconds"));
+          return;
+        }
+        navStateRef.current = "SPIN_SEARCH";
+        searchRef.current = beginSearch(now);
+        appendLog(
+          "INFO",
+          lang === "th"
+            ? "[AUTO] พักครบแล้ว : เริ่มหมุนขวาหาขยะ"
+            : "[AUTO] Rest complete : start spinning right to search"
+        );
+        sendAutoMove("right", "CMD:MOVE:RIGHT", "หมุนขวาหาขยะ");
+        setAutoStatusText(lang === "th" ? "หมุนขวาหาขยะ" : "Spin right to search");
+        return;
+      }
+
+      if (navStateRef.current === "SPRAYING") {
+        const trashVisible = frameReady && enableTrashModel && vision.items.some((item) =>
+          !isOilItem(item) && (item.status === "DETECTED" || item.status === "TRACKED"));
+        if (trashVisible) {
+          stopOilPumpNow();
+          oilSprayTargetRef.current = null;
+          navStateRef.current = "SEARCHING";
+          missionRef.current = null;
+          missionPhaseRef.current = "";
+          return;
+        }
+        if (now - stateStartTimeRef.current < OIL_SPRAY_MS) {
+          sendAutoMove(null, "CMD:MOVE:STOP", "");
+          setAutoStatusText(lang === "th" ? "เปิดพ่นน้ำมัน" : "Spraying oil");
+          return;
+        }
+        stopOilPumpNow();
+        if (oilSprayTargetRef.current) {
+          sprayedOilRef.current = [
+            ...sprayedOilRef.current,
+            { ...oilSprayTargetRef.current, missingSince: null },
+          ];
+          oilSprayTargetRef.current = null;
+        }
+        restKindRef.current = "oil";
+        navStateRef.current = "RESTING";
+        stateStartTimeRef.current = now;
+        autoTargetGate.current.reset();
+        missionRef.current = null;
+        missionPhaseRef.current = "";
+        searchRef.current = null;
+        sendAutoMove(null, "CMD:MOVE:STOP", lang === "th" ? "พักอยู่" : "Resting");
+        setAutoStatusText(lang === "th" ? "พักหลังพ่นน้ำมัน : รีเลย์ดับ 3 วินาที" : "Rest after spraying : relays off for 3 seconds");
+        return;
+      }
+
+      if (navStateRef.current === "COLLECTING") {
+        if (!frameReady) {
+          collectGoneAtRef.current = null;
+          sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้าให้ขยะเข้าช่องเก็บ");
+          setAutoStatusText(lang === "th" ? "กวาดขยะ : รอภาพจากกล้อง" : "Sweeping : waiting for a camera frame");
+          return;
+        }
+        const seen = vision.items.filter((item) =>
+          !isOilItem(item) &&
+          enableTrashModel &&
+          (item.status === "DETECTED" || item.status === "TRACKED"));
+        const itemKey = (item: TrashDetection) => `${item.type || "trash"}:${item.trackId}`;
+        const same = seen.find((item) => itemKey(item) === collectTrackRef.current) ?? null;
+        const visible = same ?? seen.reduce<TrashDetection | null>((best, item) => {
+          if (!best || item.pixelY > best.pixelY) return item;
+          return best;
+        }, null);
+        if (visible) {
+          const cameBack = collectGoneAtRef.current !== null;
+          collectGoneAtRef.current = null;
+          collectTrackRef.current = itemKey(visible);
+          if (visible.pixelY >= INTAKE_Y) {
+            sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้าให้ขยะเข้าช่องเก็บ");
+            setAutoStatusText(lang === "th" ? "กวาดขยะ : รอให้ลอดใต้กล้อง" : "Sweeping : waiting for the trash to pass under the camera");
+            return;
+          }
+          if (cameBack) {
+            appendLog(
+              "INFO",
+              lang === "th"
+                ? "[AUTO] ขยะกลับมา : ยังไม่นับ ไปจับต่อ"
+                : "[AUTO] Trash returned : not counted, continue chasing"
+            );
+          }
+          navStateRef.current = "SEARCHING";
+          collectTrackRef.current = null;
+          missionRef.current = {
+            phase: "approach",
+            trackKey: itemKey(visible),
+            seenMs: 0,
+            lastTick: now,
+            heldCommand: null,
+            heldDirection: null,
+            heldSince: now,
+          };
+          missionPhaseRef.current = "approach";
+        } else {
+          if (collectGoneAtRef.current === null) {
+            collectGoneAtRef.current = now;
+            appendLog(
+              "INFO",
+              lang === "th"
+                ? "[AUTO] ขยะลอดใต้กล้อง : รอหายครบ 1.5 วินาที"
+                : "[AUTO] Trash passed under the camera : wait 1.5 seconds"
+            );
+          }
+          if (now - collectGoneAtRef.current >= COLLECT_GONE_MS) {
+            setCollectedCount((prev) => prev + 1);
+            appendLog(
+              "SUCCESS",
+              lang === "th"
+                ? "[AUTO] เก็บได้ 1 ชิ้น : พัก 3 วินาทีก่อนไปจับขยะ"
+                : "[AUTO] One piece collected : rest 3 seconds before the next target"
+            );
+            navStateRef.current = "RESTING";
+            restKindRef.current = "trash";
+            stateStartTimeRef.current = now;
+            collectTrackRef.current = null;
+            collectGoneAtRef.current = null;
+            autoTargetGate.current.reset();
+            missionRef.current = null;
+            missionPhaseRef.current = "";
+            searchRef.current = null;
+            lastLoggedAutoDirRef.current = null;
+            sendAutoMove(null, "CMD:MOVE:STOP", lang === "th" ? "พักอยู่" : "Resting");
+            setAutoStatusText(lang === "th" ? "พักหลังเก็บ 1 ชิ้น : รีเลย์ดับ 3 วินาที" : "Rest after one piece : relays off for 3 seconds");
+            return;
+          }
+          sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้าให้ขยะเข้าช่องเก็บ");
+          setAutoStatusText(lang === "th" ? "ขยะลอดใต้กล้อง : รอหายครบ 1.5 วินาที" : "Trash under the camera : wait 1.5 seconds");
+          return;
+        }
+      }
       if (vision.status !== "ready" || now - vision.receivedAt > 1500) {
+        if (missionRef.current) {
+          missionRef.current = pauseMission(missionRef.current, now);
+        }
         sendAutoMove(null, "CMD:MOVE:STOP", "รอผลภาพใหม่");
-        navStateRef.current = "SEARCHING";
+        if (navStateRef.current !== "REVERSING") {
+          navStateRef.current = "SEARCHING";
+        }
         setAutoStatusText(t.autoNavSearching);
         return;
       }
@@ -571,16 +824,20 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
           setAutoStatusText(t.autoNavReversing);
           return;
         } else {
-          // ถอยหลังครบ 1.4 วินาทีแล้ว สลับเป็นสถานะ STABILIZING
-          sendAutoMove(null, "CMD:MOVE:STOP", "หยุดนิ่งเพื่อปรับมุมมอง");
-          navStateRef.current = "STABILIZING";
-          stateStartTimeRef.current = now;
-          setAutoStatusText(t.autoNavStabilizing);
+          sendAutoMove(null, "CMD:MOVE:STOP", "");
+          navStateRef.current = "SEARCHING";
+          lastTargetPosRef.current = null;
+          lastTargetTrackIdRef.current = null;
+          autoTargetGate.current.reset();
+          missionRef.current = null;
+          missionPhaseRef.current = "";
+          searchRef.current = null;
+          setAutoStatusText(t.autoNavSearching);
           appendLog(
             "INFO",
             lang === "th"
-              ? "[AUTO] ถอยหลังตั้งศูนย์สำเร็จ — พักปรับมุมมองกล้องเพื่อล็อกขยะชิ้นใหม่"
-              : "[AUTO] Reversing complete — Stabilizing camera to acquire next target"
+              ? "[AUTO] พักครบแล้ว : ไปหาขยะชิ้นถัดไป"
+              : "[AUTO] Rest complete : searching for the next piece"
           );
           return;
         }
@@ -589,7 +846,7 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       // 2. สถานะ STABILIZING (พักนิ่งชั่วขณะเพื่อให้ภาพนิ่งและระลอกน้ำสงบ ก่อนเริ่มสแกนจับชิ้นถัดไป)
       if (navStateRef.current === "STABILIZING") {
         const elapsed = now - stateStartTimeRef.current;
-        if (elapsed < 450) {
+        if (elapsed < 1000) {
           sendAutoMove(null, "CMD:MOVE:STOP", "");
           setAutoStatusText(t.autoNavStabilizing);
           return;
@@ -599,51 +856,91 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
           lastTargetPosRef.current = null;
           lastTargetTrackIdRef.current = null;
           autoTargetGate.current.reset();
+          missionRef.current = null;
+          missionPhaseRef.current = "";
           setAutoStatusText(t.autoNavSearching);
           return;
         }
       }
 
-      // 3. สถานะ COLLECTING (ระยะเข้ากระชัง/ช่องเก็บขยะ เดินหน้าต่อสั้นๆ เพื่อกวาดเข้ากระชังให้หมด)
-      if (navStateRef.current === "COLLECTING") {
-        const elapsed = now - stateStartTimeRef.current;
-        if (elapsed < 800) {
-          sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้ากวาดขยะเข้าช่องเก็บ");
-          setAutoStatusText(t.autoNavCollecting);
-          return;
-        } else {
-          // เก็บเสร็จแล้ว! เพิ่มจำนวนขยะที่เก็บได้ และเริ่มเข้าสู่ขั้นตอน REVERSING
-          setCollectedCount((prev) => prev + 1);
-          appendLog(
-            "SUCCESS",
-            lang === "th"
-              ? `[AUTO] 🎉 เก็บขยะสำเร็จ! — เริ่มถอยหลังตั้งศูนย์ล็อกชิ้นใหม่`
-              : `[AUTO] 🎉 Target collected! — Reversing to acquire next target`
-          );
-          navStateRef.current = "REVERSING";
-          stateStartTimeRef.current = now;
-          sendAutoMove("backward", "CMD:MOVE:BACK", "ถอยหลัง");
-          setAutoStatusText(t.autoNavReversing);
-          return;
-        }
-      }
-
-      // พิกัดความกว้าง 640 x ความสูง 360
-      // ศูนย์กลางกล้อง X = 320 (ช่วงที่ถือว่าตรงกลาง: 265 - 375 px)
-      const centerMin = 265;
-      const centerMax = 375;
-      const intakeY = 275; // เข้าใกล้ถึงปากช่องเก็บ
-
       // 4. ตรวจสอบเป้าหมายจาก AI Vision
       // คัดเลือกเป้าหมายแบบ Sticky Target Lock: ยึด Track ID เดิมอย่างมั่นคง ไม่สลับเป้าหมายไปมาขณะเรือเลี้ยว
-      const target = autoTargetGate.current.select(vision.items, vision.status, vision.receivedAt, vision.frame, now);
+      const gateItems = vision.items.filter((item) => {
+        const live = item.status === "DETECTED" || item.status === "TRACKED";
+        if (!live) return false;
+        if (isOilItem(item)) {
+          if (!enableOilModel) return false;
+          return !sprayedOilRef.current.some((mark) => coversSprayedOil(mark, item));
+        }
+        return enableTrashModel;
+      });
+      const lock = autoTargetGate.current.select(gateItems, vision.status, vision.receivedAt, vision.frame, now);
 
-      if (!target) {
-        navStateRef.current = "SEARCHING";
-        sendAutoMove(null, "CMD:MOVE:STOP", "รอยืนยันเป้าหมายเดิมหรือเป้าใหม่");
-        setAutoStatusText(t.autoNavSearching);
+      const wasCollectingRun =
+        missionPhaseRef.current === "approach" ||
+        missionPhaseRef.current === "intake" ||
+        missionPhaseRef.current === "collect" ||
+        navStateRef.current === "APPROACHING";
+      if (wasCollectingRun && (lock.state !== "locked" || !lock.target || isOilItem(lock.target))) {
+        if (!collectTrackRef.current && missionRef.current) {
+          collectTrackRef.current = missionRef.current.trackKey;
+        }
+        navStateRef.current = "COLLECTING";
+        if (collectGoneAtRef.current === null) {
+          collectGoneAtRef.current = now;
+          appendLog(
+            "INFO",
+            lang === "th"
+              ? "[AUTO] ขยะลอดใต้กล้อง : รอหายครบ 1.5 วินาที"
+              : "[AUTO] Trash passed under the camera : wait 1.5 seconds"
+          );
+        }
+        sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้าเข้าหาขยะ");
+        setAutoStatusText(lang === "th" ? "ขยะลอดใต้กล้อง : รอหายครบ 1.5 วินาที" : "Trash under the camera : wait 1.5 seconds");
         return;
       }
+
+      if (lock.state === "grace") {
+        if (missionRef.current) {
+          missionRef.current = pauseMission(missionRef.current, now);
+        }
+        setAutoStatusText(lang === "th"
+          ? "หลุดล็อกชั่วคราว : ไปต่อถ้าเจอเป้าเดิมภายใน 2 วินาที"
+          : "Lock dropped briefly : continue if the same target returns within 2 seconds");
+        return;
+      }
+
+      if (lock.state === "search" || !lock.target) {
+        if (navStateRef.current !== "SPIN_SEARCH") {
+          if (lock.released) {
+            appendLog(
+              "INFO",
+              lang === "th"
+                ? "[AUTO] หลุดล็อกเกิน 2 วินาที : หยุดแล้วหมุนขวาหาขยะใหม่"
+                : "[AUTO] Lock lost for over 2 seconds : stop and spin right to search"
+            );
+          }
+          navStateRef.current = "SPIN_SEARCH";
+          searchRef.current = beginSearch(now);
+          missionRef.current = null;
+          missionPhaseRef.current = "";
+          sendAutoMove(null, "CMD:MOVE:STOP", "");
+          setAutoStatusText(t.autoNavSearching);
+          return;
+        }
+
+        const searching = searchRef.current ?? beginSearch(now);
+        const step = advanceSearch(searching, now);
+        searchRef.current = step.state;
+        const searchLabel = step.direction === "forward"
+          ? (lang === "th" ? "เดินหน้าหาขยะ" : "Drive forward to search")
+          : (lang === "th" ? "หมุนขวาหาขยะ" : "Spin right to search");
+        sendAutoMove(step.direction, step.command, searchLabel);
+        setAutoStatusText(searchLabel);
+        return;
+      }
+
+      const target = lock.target;
 
       // บันทึกตำแหน่งล่าสุดของเป้าหมาย
       lastTargetPosRef.current = {
@@ -655,48 +952,158 @@ export const DashboardView: React.FC<{ controlAvailable?: boolean; macAiMode?: b
       const px = target.pixelX;
       const py = target.pixelY;
       const isOilTarget = target.type === "oil" || (typeof target.className === "string" && target.className.includes("น้ำมัน"));
+      const trackKey = `${target.type || "trash"}:${target.trackId}`;
+      searchRef.current = null;
 
-      // A. ถ้าถึงระยะช่องเก็บ (Y >= intakeY)
-      if (py >= intakeY) {
-        navStateRef.current = "COLLECTING";
-        stateStartTimeRef.current = now;
-        sendAutoMove("forward", "CMD:MOVE:FORWARD", isOilTarget ? "เดินหน้าเก็บคราบน้ำมัน" : "เดินหน้ากวาดเข้าช่องเก็บ");
-        setAutoStatusText(t.autoNavCollecting);
-        appendLog(
-          "INFO",
-          lang === "th"
-            ? `[AUTO] ${isOilTarget ? "คราบน้ำมัน" : "ขยะ"}ถึงระยะเก็บ (${px}, ${py}) — เริ่มกระบวนการเก็บ`
-            : `[AUTO] ${isOilTarget ? "Oil spill" : "Trash target"} in intake range (${px}, ${py}) — Collecting`
-        );
+      let clock = missionRef.current;
+      if (!clock || clock.trackKey !== trackKey) {
+        clock = beginMission(now, trackKey);
+        missionPhaseRef.current = "";
+        if (lock.switched) {
+          appendLog(
+            "INFO",
+            isOilTarget
+              ? (lang === "th"
+                ? "[AUTO] เจอคราบน้ำมัน : หยุดแล้วเริ่มตรวจใหม่ตั้งแต่ต้น"
+                : "[AUTO] Oil found : stop and restart verification from the beginning")
+              : (lang === "th"
+                ? "[AUTO] เจอขยะ : หยุดแล้วเริ่มตรวจใหม่ตั้งแต่ต้น"
+                : "[AUTO] New target : stop and restart verification from the beginning")
+          );
+        }
+      }
+
+      if (isOilTarget) {
+        const oilStep = advanceOilAlign(clock, now, px);
+        missionRef.current = oilStep.clock;
+        if (oilStep.phase !== missionPhaseRef.current) {
+          missionPhaseRef.current = oilStep.phase;
+          const oilLog = oilStep.phase === "confirm"
+            ? (lang === "th" ? "[AUTO] หยุดตรวจ" : "[AUTO] Confirm")
+            : oilStep.phase === "center"
+              ? (lang === "th" ? "[AUTO] พบคราบน้ำมัน : หมุนให้คราบอยู่กลางจอ" : "[AUTO] Oil found : center it on screen")
+              : (lang === "th" ? "[AUTO] พบคราบน้ำมัน : เปิดพ่น" : "[AUTO] Oil found : spray");
+          appendLog("INFO", oilLog);
+        }
+        if (oilStep.phase === "spray") {
+          oilSprayTargetRef.current = { key: trackKey, x: px, y: py };
+          navStateRef.current = "SPRAYING";
+          stateStartTimeRef.current = now;
+          sendAutoMove(null, "CMD:MOVE:STOP", "");
+          startOilPump();
+          setAutoStatusText(lang === "th" ? "เปิดพ่นน้ำมัน" : "Spraying oil");
+          return;
+        }
+        if (oilStep.phase === "confirm") {
+          navStateRef.current = "SEARCHING";
+          sendAutoMove(null, oilStep.command, "");
+          setAutoStatusText(lang === "th" ? "หยุดตรวจ" : "Confirm");
+          return;
+        }
+        navStateRef.current = "ALIGNING";
+        const centerLabel = oilStep.direction === "left"
+          ? (lang === "th" ? "หมุนซ้ายให้คราบน้ำมันอยู่กลางจอ" : "Spin left to center the oil")
+          : (lang === "th" ? "หมุนขวาให้คราบน้ำมันอยู่กลางจอ" : "Spin right to center the oil");
+        sendAutoMove(oilStep.direction, oilStep.command, centerLabel);
+        setAutoStatusText(centerLabel);
         return;
       }
 
-      // B. ถ้าขยะอยู่ทางซ้าย (X < 265) -> สั่งเลี้ยวซ้าย
-      if (px < centerMin) {
+      const step = advanceMission(clock, now, px, py);
+      missionRef.current = step.phase === "collect" ? null : step.clock;
+
+      if (step.phase !== missionPhaseRef.current) {
+        const previousPhase = missionPhaseRef.current;
+        missionPhaseRef.current = step.phase;
+        const justConfirmed = previousPhase === "confirm";
+        const phaseLog = justConfirmed && step.phase === "center"
+          ? (lang === "th" ? "[AUTO] พบขยะ : หมุนให้ขยะอยู่กลางจอ" : "[AUTO] Trash found : center it on screen")
+          : justConfirmed && (step.phase === "approach" || step.phase === "intake" || step.phase === "collect")
+            ? (lang === "th" ? "[AUTO] พบขยะ : เดินหน้า" : "[AUTO] Trash found : drive forward")
+            : step.phase === "confirm"
+          ? (lang === "th" ? "[AUTO] หยุดตรวจ" : "[AUTO] Confirm")
+          : step.phase === "commit"
+            ? (lang === "th" ? "[AUTO] พักรีเลย์ : ดับ 1 วินาที" : "[AUTO] Relay rest : off for 1 second")
+            : step.phase === "center"
+              ? ""
+              : step.phase === "approach"
+                ? (lang === "th" ? "[AUTO] เข้าหา : เริ่มเดินหน้า" : "[AUTO] Approach : moving forward")
+              : step.phase === "intake"
+                ? (lang === "th" ? "[AUTO] ระยะเก็บ : ยืนยันอีก 1.2 วินาที" : "[AUTO] Intake : confirm for 1.2 seconds")
+                : (lang === "th"
+                  ? `[AUTO] เก็บขยะ (${px}, ${py}) : เดินหน้าจนลอดใต้กล้อง แล้วรอหาย 1.5 วินาที`
+                  : `[AUTO] Collect trash (${px}, ${py}) : drive until it passes under the camera, then wait 1.5 seconds`);
+        if (phaseLog) appendLog("INFO", phaseLog);
+      }
+
+      if (step.phase === "collect") {
+        navStateRef.current = "COLLECTING";
+        stateStartTimeRef.current = now;
+        collectTrackRef.current = trackKey;
+        collectGoneAtRef.current = null;
+        sendAutoMove("forward", step.command, "เดินหน้าให้ขยะเข้าช่องเก็บ");
+        setAutoStatusText(lang === "th" ? "กวาดขยะ : รอให้ลอดใต้กล้อง" : "Sweeping : waiting for the trash to pass under the camera");
+        return;
+      }
+
+      if (step.phase === "confirm") {
+        navStateRef.current = "SEARCHING";
+        sendAutoMove(null, step.command, "");
+        setAutoStatusText(lang === "th" ? "หยุดตรวจ" : "Confirm");
+        return;
+      }
+
+      if (step.phase === "commit") {
+        navStateRef.current = "SEARCHING";
+        sendAutoMove(null, step.command, "");
+        setAutoStatusText(lang === "th" ? "พักรีเลย์ : หยุด 1 วินาทีก่อนจับขยะ" : "Relay rest : stopped for 1 second before chasing");
+        return;
+      }
+
+      if (step.phase === "center") {
         navStateRef.current = "ALIGNING";
-        sendAutoMove("left", "CMD:MOVE:LEFT", "เลี้ยวซ้ายตั้งศูนย์");
+        const centerLabel = step.direction === "left"
+          ? (lang === "th" ? "หมุนซ้ายให้ขยะอยู่กลางจอ" : "Spin left to center the target")
+          : (lang === "th" ? "หมุนขวาให้ขยะอยู่กลางจอ" : "Spin right to center the target");
+        sendAutoMove(step.direction, step.command, centerLabel);
+        setAutoStatusText(lang === "th"
+          ? `ตั้งกลางจอ : ${centerLabel} (${px}, ${py})`
+          : `Center : ${centerLabel} (${px}, ${py})`);
+        return;
+      }
+
+      if (step.phase === "intake") {
+        navStateRef.current = "APPROACHING";
+        sendAutoMove("forward", step.command, "ยืนยันระยะเก็บ");
+        setAutoStatusText(lang === "th"
+          ? `ระยะเก็บ : ยืนยันก่อนกวาด (${px}, ${py})`
+          : `Intake : confirming before sweep (${px}, ${py})`);
+        return;
+      }
+
+      if (step.direction === "left") {
+        navStateRef.current = "ALIGNING";
+        sendAutoMove("left", step.command, "หมุนซ้ายกันหลุดจากภาพ");
         setAutoStatusText(`${t.autoNavAlignLeft} (${px}, ${py})`);
         return;
       }
 
-      // C. ถ้าขยะอยู่ทางขวา (X > 375) -> สั่งเลี้ยวขวา
-      if (px > centerMax) {
+      if (step.direction === "right") {
         navStateRef.current = "ALIGNING";
-        sendAutoMove("right", "CMD:MOVE:RIGHT", "เลี้ยวขวาตั้งศูนย์");
+        sendAutoMove("right", step.command, "หมุนขวากันหลุดจากภาพ");
         setAutoStatusText(`${t.autoNavAlignRight} (${px}, ${py})`);
         return;
       }
 
-      // D. ถ้าขยะอยู่กึ่งกลาง (265 <= X <= 375) -> สั่งเดินหน้าเข้าหาขยะ
       navStateRef.current = "APPROACHING";
-      sendAutoMove("forward", "CMD:MOVE:FORWARD", "เดินหน้าเข้าหาขยะ");
+      sendAutoMove("forward", step.command, "เดินหน้าเข้าหาขยะ");
       setAutoStatusText(`${t.autoNavForward} (${px}, ${py})`);
     }, 100);
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [mode, isConnected, isLocked, controlAvailable, lang, t, appendLog]);
+  }, [mode, isConnected, isLocked, controlAvailable, lang, t, appendLog, enableOilModel, enableTrashModel]);
 
   const lanMismatchMessage = useCallback(
     (board: string, lan: string) =>
