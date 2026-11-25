@@ -21,7 +21,7 @@ type TrailPoint = GpsFix & { startsSegment?: boolean };
 
 const gpsStatus: Record<GpsTelemetry["status"], Record<Language, string>> = {
   simulated: { th: "GPS จำลอง", en: "Simulated GPS" },
-  live: { th: "GPS สด", en: "Live GPS" },
+  live: { th: "GPS LIVE", en: "GPS LIVE" },
   waiting: { th: "รอพิกัด GPS", en: "Waiting for GPS" },
   connected_no_fix: { th: "โมดูลพร้อม (รอสัญญาณดาวเทียม)", en: "Module OK (No Fix)" },
   stale: { th: "พิกัด GPS หมดอายุ", en: "GPS position is stale" },
