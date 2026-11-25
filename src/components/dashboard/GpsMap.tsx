@@ -197,7 +197,7 @@ export function GpsMap({ lang, initialPosition, simulated, boardIp }: GpsMapProp
           iconSize: [20, 20],
           iconAnchor: [10, 10],
         }),
-      }).bindTooltip("RIBO-TH", {
+      }).bindTooltip("RIBO-TH (LIVE)", {
         permanent: true,
         direction: "top",
         offset: [0, -16],
@@ -245,11 +245,8 @@ export function GpsMap({ lang, initialPosition, simulated, boardIp }: GpsMapProp
       map.marker.addTo(map.instance);
       map.instance.setView(next, trackingZoom);
     }
-    const label = isThai
-      ? (position ? "RIBO-TH (GPS สด)" : "RIBO-TH (ตำแหน่งปัจจุบัน - รอสัญญาณดาวเทียม)")
-      : (position ? "RIBO-TH (Live GPS)" : "RIBO-TH (Current location - Waiting for fix)");
-    map.marker.setTooltipContent(label);
-  }, [isThai, map, markerPosition, position, trackingZoom, viewedRoute]);
+    map.marker.setTooltipContent("RIBO-TH (LIVE)");
+  }, [map, markerPosition, trackingZoom, viewedRoute]);
 
   useEffect(() => {
     if (!map) return;
