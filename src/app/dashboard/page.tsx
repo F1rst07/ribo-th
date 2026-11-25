@@ -17,6 +17,7 @@ export default function DashboardPage() {
     <DashboardView
       controlAvailable={true}
       macAiMode={process.env.RIBO_MAC_AI === "true"}
+      simulatedGps={process.env.RIBO_GPS_MODE === "simulated"}
     />
   );
 }

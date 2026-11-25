@@ -105,7 +105,7 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
             ...(boardVisionApi(ip).startsWith("/") ? { "X-UNOQ-IP": ip } : {}),
           },
           body: "e30=",
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(4000)]),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]),
         });
         if (response.status === 429) {
           if (!stopped) timer = setTimeout(() => void wifiScan(), WIFI_VISION_MS);
@@ -126,8 +126,10 @@ export const CameraMonitor: React.FC<CameraMonitorProps> = ({
       } catch (error) {
         if (!stopped) {
           failures += 1;
-          nextDelay = Math.min(400, WIFI_VISION_MS * 2 ** Math.min(failures, 3));
-          onResult([], "error", error instanceof Error ? error.message : "Inference failed");
+          nextDelay = Math.min(500, WIFI_VISION_MS * 2 ** Math.min(failures, 3));
+          if (failures >= 3) {
+            onResult([], "error", error instanceof Error ? error.message : "Inference failed");
+          }
         }
       }
       if (!stopped) timer = setTimeout(() => void wifiScan(), nextDelay);

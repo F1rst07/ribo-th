@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
-import { isSameRequestOrigin, unoqApiUrl } from "@/lib/unoqEndpoint";
+import { isSameRequestOrigin, resolveUnoQHost, unoqApiUrl } from "@/lib/unoqEndpoint";
 
 export async function OPTIONS(request: NextRequest) {
   return corsPreflightResponse(request);
@@ -18,8 +18,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const command = body.command || "";
     const requestedIp = (body.ip || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3").trim();
+    const targetHost = await resolveUnoQHost(requestedIp);
 
-    const targetUrls = [unoqApiUrl(requestedIp, "command", "/api/command")];
+    const targetUrls = [unoqApiUrl(targetHost, "command", "/api/command")];
 
     let lastError: unknown = null;
 

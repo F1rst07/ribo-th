@@ -41,6 +41,112 @@ MOTOR_COMMANDS = {
 }
 _mcu_lock = threading.Lock()
 _mcu_sock: socket.socket | None = None
+_gps_lock = threading.Lock()
+_latest_gps: dict | None = None
+_latest_gps_diag: dict | None = None
+_GPS_FIX_PATH = Path(
+    os.environ.get("RIBO_GPS_FIX_PATH") or f"/tmp/ribo-gps-{os.getuid()}.json"
+)
+
+
+def _record_gps_line(raw_line: str) -> None:
+    global _latest_gps
+    line = raw_line.strip()
+    if not line.startswith("GPS "):
+        return
+    coords = line[4:].split(",", 1)
+    if len(coords) != 2:
+        return
+    try:
+        lat = float(coords[0].strip())
+        lon = float(coords[1].strip())
+    except ValueError:
+        return
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return
+    if lat == 0.0 and lon == 0.0:
+        return
+    fix = {
+        "latitude": round(lat, 6),
+        "longitude": round(lon, 6),
+        "observedAt": int(time.time() * 1000),
+    }
+    with _gps_lock:
+        _latest_gps = fix
+    try:
+        tmp = _GPS_FIX_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(fix), encoding="utf-8")
+        tmp.replace(_GPS_FIX_PATH)
+    except OSError:
+        pass
+
+
+def _record_gps_diag_line(raw_line: str) -> None:
+    global _latest_gps_diag
+    line = raw_line.strip()
+    parts = {}
+    for item in line.split(" "):
+        if "=" in item:
+            k, v = item.split("=", 1)
+            parts[k] = v
+    bytes_val = int(parts.get("bytes", 0)) if parts.get("bytes", "").isdigit() else 0
+    lines_val = int(parts.get("lines", 0)) if parts.get("lines", "").isdigit() else 0
+    sats_val = int(parts.get("sats", 0)) if parts.get("sats", "").isdigit() else 0
+    diag = {
+        "bytes": bytes_val,
+        "lines": lines_val,
+        "fix": parts.get("fix") == "1",
+        "sats": sats_val,
+        "raw": parts.get("raw", ""),
+        "observedAt": int(time.time() * 1000),
+    }
+    with _gps_lock:
+        _latest_gps_diag = diag
+
+
+def _consume_mcu_lines(buf: bytes) -> None:
+    for line in buf.decode("utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("GPS "):
+            _record_gps_line(line)
+        elif line.startswith("GPS_DIAG"):
+            _record_gps_diag_line(line)
+
+
+def _gps_monitor_loop() -> None:
+    global _mcu_sock
+    leftover = b""
+    while True:
+        time.sleep(0.5)
+        with _mcu_lock:
+            try:
+                if _mcu_sock is None:
+                    _mcu_sock = socket.create_connection(MCU_MONITOR, timeout=1.0)
+                _mcu_sock.settimeout(0.15)
+                try:
+                    chunk = _mcu_sock.recv(512)
+                    if chunk:
+                        print(f"[MCU_RAW] {chunk}", flush=True)
+                except (socket.timeout, TimeoutError):
+                    continue
+                if not chunk:
+                    raise ConnectionError("monitor closed")
+                data = leftover + chunk
+                if b"\n" in data:
+                    head, leftover = data.rsplit(b"\n", 1)
+                    _consume_mcu_lines(head)
+                else:
+                    leftover = data[-256:]
+            except (OSError, ConnectionError):
+                leftover = b""
+                if _mcu_sock is not None:
+                    try:
+                        _mcu_sock.close()
+                    except OSError:
+                        pass
+                    _mcu_sock = None
 
 
 def send_motor_command(command: str) -> None:
@@ -66,6 +172,7 @@ def send_motor_command(command: str) -> None:
                         raise ConnectionError("monitor closed")
                     buf += chunk
                     if ack in buf:
+                        _consume_mcu_lines(buf)
                         return
                 raise TimeoutError("no ack")
             except (OSError, TimeoutError) as error:
@@ -142,6 +249,23 @@ class Handler(BaseHTTPRequestHandler):
                 last = str(error)
         return self.json(502, {"success": False, "error": last or "Wi-Fi connect failed"})
 
+    def gps_status(self):
+        with _gps_lock:
+            fix = dict(_latest_gps) if _latest_gps else None
+            diag = dict(_latest_gps_diag) if _latest_gps_diag else None
+        if not fix:
+            status = "waiting"
+            if diag:
+                if diag.get("bytes", 0) > 0:
+                    status = "connected_no_fix"
+                else:
+                    status = "no_data"
+            return {"status": status, "position": None, "hardware": diag}
+        age_ms = int(time.time() * 1000) - fix["observedAt"]
+        if age_ms > 5000:
+            return {"status": "stale", "position": None, "hardware": diag}
+        return {"status": "live", "position": fix, "hardware": diag}
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/health", "/api/health", "/api/status"):
@@ -149,12 +273,15 @@ class Handler(BaseHTTPRequestHandler):
                        "ort_threads": int(os.environ["RIBO_ORT_THREADS"]),
                        "bridge": "unavailable", "control_ready": False,
                        "control_error": "MCU control is not configured or verified",
-                       "camera": self.camera_status()}
+                       "camera": self.camera_status(),
+                       "gps": self.gps_status()}
             if Handler.latest is not None:
                 payload["last_detect_age_ms"] = round((time.monotonic() - Handler.latest_at) * 1000, 1)
             return self.json(200, payload)
         if path in ("/camera/status", "/api/camera/status"):
             return self.json(200, self.camera_status())
+        if path == "/api/gps":
+            return self.json(200, self.gps_status())
         if path in ("/camera/snapshot", "/api/snapshot"):
             with self.streamer.lock:
                 frame = self.streamer.current_jpeg if self.camera_status()["active"] else None
@@ -305,4 +432,5 @@ if __name__ == "__main__":
     Handler.streamer = CameraStreamer()
     Handler.streamer.start()
     threading.Thread(target=_infer_loop, name="ribo-infer", daemon=True).start()
+    threading.Thread(target=_gps_monitor_loop, name="ribo-gps", daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("RIBO_AI_PORT", "8000"))), Handler).serve_forever()

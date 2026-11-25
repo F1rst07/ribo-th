@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { corsPreflightResponse, jsonWithCors, withCors } from "@/lib/cors";
-import { unoqApiUrl } from "@/lib/unoqEndpoint";
+import { resolveUnoQHost, unoqApiUrl } from "@/lib/unoqEndpoint";
 
 export async function OPTIONS(request: NextRequest) {
   return corsPreflightResponse(request);
@@ -14,8 +14,9 @@ export async function GET(request: NextRequest) {
     "172.20.10.3"
   ).trim();
 
+  const targetHost = await resolveUnoQHost(requestedIp);
   const targetUrls = [
-    unoqApiUrl(requestedIp, "snapshot", "/api/snapshot"),
+    unoqApiUrl(targetHost, "snapshot", "/api/snapshot"),
   ];
 
   for (const url of targetUrls) {

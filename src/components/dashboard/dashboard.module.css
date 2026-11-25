@@ -140,15 +140,29 @@
 /* 2-Column Responsive Layout */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  grid-template-rows: auto 1fr;
   gap: 12px;
   align-items: start;
   width: 100%;
   box-sizing: border-box;
 }
 
+.layout:not(.layoutDisconnected) > .areaStatus {
+  grid-area: 1 / 2;
+}
+
+.layoutMedia {
+  grid-area: 1 / 1 / span 2;
+}
+
+.layoutControls {
+  grid-area: 2 / 2;
+}
+
 .layoutDisconnected {
   grid-template-columns: minmax(240px, 640px);
+  grid-template-rows: auto;
   justify-content: center;
   width: 100%;
 }
@@ -196,6 +210,7 @@
 
 .areaStatus,
 .areaCamera,
+.areaMap,
 .areaDetails,
 .areaMode,
 .areaOil,
@@ -225,6 +240,636 @@
   align-items: center;
   justify-content: space-between;
   color: #ffffff;
+}
+
+.gpsMapCard {
+  container: gps-map / inline-size;
+  --gps-surface: #202933;
+  --gps-border: #445361;
+  --gps-text: #eaf0f4;
+  --gps-muted: #bec9d2;
+  --gps-accent: #ffcc00;
+}
+
+.gpsMapHeader,
+.gpsMapFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.gpsMapHeader {
+  margin-bottom: 12px;
+}
+
+.gpsMapActions,
+.gpsMapHeading,
+.gpsMapToolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gpsMapToolbar {
+  margin-inline-start: auto;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.gpsMapRecordingStatus {
+  color: #ffb295;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gpsMapRecordButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--gps-border);
+  border-radius: 7px;
+  background: var(--gps-surface);
+  color: var(--gps-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.gpsMapRecordButton svg,
+.gpsMapTitle svg,
+.gpsMapLink svg {
+  flex: 0 0 auto;
+}
+
+.gpsMapToolbar > .gpsMapRecordButton {
+  min-height: 30px;
+  padding: 4px 8px;
+  gap: 5px;
+}
+
+.gpsMapRecordButton:not(:disabled):hover,
+.gpsMapRecordButton[aria-expanded="true"] {
+  background: #374451;
+  border-color: #718394;
+}
+
+.gpsMapRecordButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.gpsMapRecordButton.gpsMapPrimaryButton {
+  background: var(--gps-accent);
+  border-color: var(--gps-accent);
+  color: #201d12;
+}
+
+.gpsMapRecordButton.gpsMapPrimaryButton:hover {
+  background: #ffe072;
+}
+
+.gpsMapRecordButton.gpsMapPrimaryButton[data-recording="true"],
+.gpsMapRecordButton.gpsMapDangerButton {
+  background: #382b31;
+  border-color: #815256;
+  color: #ffc0bd;
+}
+
+.gpsMapRecordButton.gpsMapPrimaryButton[data-recording="true"]:hover,
+.gpsMapRecordButton.gpsMapDangerButton:hover {
+  background: #50373d;
+}
+
+.gpsMapRecordButton:focus-visible,
+.gpsMapControls button:focus-visible,
+.gpsMapCard a:focus-visible,
+.gpsRouteHistory select:focus-visible {
+  outline: 2px solid var(--gps-accent);
+  outline-offset: 2px;
+}
+
+.gpsMapControls button:focus-visible,
+.gpsMapAttribution:focus-visible {
+  outline-offset: -2px;
+}
+
+.gpsMapReview,
+.gpsMapNotice {
+  padding: 8px 10px;
+  border: 1px solid var(--gps-border);
+  border-radius: 7px;
+  background: var(--gps-surface);
+}
+
+.gpsMapReview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.gpsMapNotice {
+  margin: 8px 0 0;
+  color: #ffda91;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gpsRouteHistoryChevron {
+  transition: transform 200ms ease;
+}
+
+.gpsMapRecordButton[aria-expanded="true"] .gpsRouteHistoryChevron {
+  transform: rotate(180deg);
+}
+
+.gpsRouteHistoryPanel {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition: grid-template-rows 240ms ease, visibility 0s 240ms;
+  scroll-margin-top: 12px;
+}
+
+.gpsRouteHistoryPanel[data-open="true"] {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.gpsRouteHistoryPanel > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gpsRouteHistoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gpsRouteClose {
+  flex-shrink: 0;
+  min-width: var(--gps-history-control-height);
+}
+
+.gpsRouteDeleteConfirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border: 1px solid #a85b56;
+  border-radius: 6px;
+  background: #34252a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gpsRouteHistoryPanel,
+  .gpsRouteHistoryChevron {
+    transition: none;
+  }
+}
+
+.gpsRouteHistory {
+  --gps-history-control-height: 30px;
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 3px 3px;
+  border-top: 1px solid var(--gps-border);
+  color: var(--gps-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.gpsRouteHistory .gpsMapRecordButton {
+  min-height: var(--gps-history-control-height);
+  padding: 3px 8px;
+  gap: 5px;
+}
+
+.gpsRouteHistory h3,
+.gpsRouteHistory p {
+  margin: 0;
+}
+
+.gpsRouteHistory h3 {
+  font-size: 14px;
+}
+
+.gpsRouteLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.gpsRouteFigure {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--gps-border);
+  border-radius: 8px;
+  background: #18232d;
+}
+
+.gpsRouteArtwork {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  height: clamp(100px, 21cqi, 138px);
+}
+
+.gpsRouteArtwork svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.gpsRouteLegend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  padding-block: 2px;
+  color: var(--gps-muted);
+  font-size: 11px;
+}
+
+.gpsRouteLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gpsRouteLegend span::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #69d7a0;
+}
+
+.gpsRouteLegend span:last-child::before {
+  background: #fff;
+}
+
+.gpsRouteDetails {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.gpsRouteActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.gpsRouteHistory label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.gpsRouteHistory select {
+  appearance: none;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--gps-history-control-height);
+  padding: 3px 34px 3px 8px;
+  border: 1px solid var(--gps-border);
+  border-radius: 7px;
+  background: var(--gps-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m3 6 5 5 5-5' fill='none' stroke='%23bec9d2' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center / 14px 14px;
+  color: inherit;
+  font: inherit;
+}
+
+@media (forced-colors: active) {
+  .gpsRouteHistory select {
+    appearance: auto;
+    padding-right: 8px;
+    background-image: none;
+  }
+}
+
+.gpsRouteSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0;
+}
+
+.gpsRouteSummary > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--gps-border);
+  border-radius: 7px;
+  background: var(--gps-surface);
+}
+
+.gpsRouteSummary dt {
+  color: var(--gps-muted);
+}
+
+.gpsRouteSummary dd {
+  margin: 0;
+  color: #fff;
+  font-weight: 700;
+}
+
+.gpsMapTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.gpsMapTitle svg,
+.gpsMapLink {
+  color: #ffcc00;
+}
+
+.gpsMapBadge {
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgb(255 204 0 / 10%);
+  color: #ffdf66;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.gpsMapViewport {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  height: clamp(285px, 40vw, 460px);
+  border: 1px solid #46535f;
+  border-radius: 8px;
+  background: #1b242c;
+}
+
+.gpsMapFrame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #1b242c;
+}
+
+.gpsRouteStroke {
+  filter: drop-shadow(0 0 1px white);
+}
+
+.gpsMapControls,
+.gpsMapStatus {
+  color: #f1f5f9;
+  background: #202933;
+  border: 1px solid #516071;
+  border-radius: 7px;
+  box-shadow: 0 2px 8px #0005;
+}
+
+.gpsMapControls,
+.gpsMapStatus {
+  position: absolute;
+  z-index: 1000;
+}
+
+.gpsMapControls {
+  top: 10px;
+  right: 10px;
+  display: grid;
+  padding: 3px;
+}
+
+.gpsMapControls button {
+  display: grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.gpsMapControls button:hover {
+  background: #374451;
+}
+
+.gpsMapControls button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.gpsMapStatus {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: 6px 10px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  text-align: center;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.gpsMapAttribution {
+  position: absolute;
+  z-index: 1000;
+  right: 0;
+  bottom: 0;
+  max-width: calc(100% - 72px);
+  padding: 2px 5px;
+  border-top-left-radius: 4px;
+  background: #202933;
+  color: #f1f5f9;
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.gpsVesselPin {
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: #ffcc00;
+  box-shadow: 0 0 0 2px #202933, 0 0 0 9px #ffcc004a;
+  box-sizing: border-box;
+}
+
+.gpsMapFrame .gpsVesselLabel {
+  padding: 3px 7px;
+  border: 1px solid #ffcc00;
+  border-radius: 4px;
+  background: #202933;
+  color: #fff;
+  font-weight: 700;
+}
+
+.gpsMapFrame .gpsVesselLabel::before {
+  display: none;
+}
+
+.gpsMapFooter {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.gpsMapSource {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.gpsMapCoordinates {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 3px 12px;
+  margin-top: 3px;
+  color: #b8c4ce;
+  font-variant-numeric: tabular-nums;
+}
+
+.gpsMapCoordinates b {
+  color: #ffffff;
+}
+
+.gpsMapLiveStats {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: inherit;
+  margin: 0;
+  color: var(--gps-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gpsMapLiveStats > div {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+}
+
+.gpsMapLiveStats dd {
+  margin: 0;
+  color: var(--gps-accent);
+  font-weight: 700;
+}
+
+.gpsMapLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+@container gps-map (max-width: 32rem) {
+  .gpsMapToolbar {
+    --gps-toolbar-touch-height: 32px;
+    flex: 1 0 100%;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  .gpsMapToolbar .gpsMapRecordingStatus {
+    flex-basis: 100%;
+  }
+
+  .gpsMapToolbar > .gpsMapRecordButton {
+    min-height: 27px;
+    padding: 3px 6px;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  .gpsMapToolbar > .gpsMapRecordButton svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .gpsMapViewport {
+    height: clamp(230px, 70cqi, 310px);
+  }
+
+  .gpsRouteLayout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .gpsRouteHistory {
+    --gps-history-control-height: 34px;
+  }
+
+  .gpsRouteDetails {
+    grid-row: 1;
+  }
+
+  .gpsRouteArtwork {
+    height: clamp(92px, 34cqi, 122px);
+  }
+
+  .gpsMapRecordButton,
+  .gpsMapLink {
+    min-height: 44px;
+  }
+
+  .gpsMapControls button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+}
+
+@media (pointer: coarse) {
+  .gpsMapToolbar > .gpsMapRecordButton {
+    min-height: var(--gps-toolbar-touch-height, 36px);
+  }
+
+  .gpsRouteHistory {
+    --gps-history-control-height: 38px;
+  }
+}
+
+@container gps-map (max-width: 15rem) {
+  .gpsRouteActions,
+  .gpsRouteHistory label {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .accent {
@@ -1120,24 +1765,6 @@ a.btnOpenBoard {
   }
   .stack {
     display: contents;
-  }
-  .areaStatus {
-    order: 1;
-  }
-  .areaCamera {
-    order: 2;
-  }
-  .areaDetails {
-    order: 3;
-  }
-  .areaMode {
-    order: 4;
-  }
-  .areaOil {
-    order: 5;
-  }
-  .areaLog {
-    order: 6;
   }
   .wrap {
     padding: 12px 14px 24px;

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { corsPreflightResponse, jsonResponseWithCors } from "@/lib/cors";
-import { isSameRequestOrigin, unoqHost } from "@/lib/unoqEndpoint";
+import { isSameRequestOrigin, resolveUnoQHost, unoqHost } from "@/lib/unoqEndpoint";
 
 const MAX_IMAGE_LENGTH = 1_500_000;
 
@@ -41,9 +41,10 @@ export async function POST(request: NextRequest) {
     const enableOil = request.headers.get("X-Enable-Oil") ?? "1";
     const onDevice = process.env.RIBO_DEVICE_MODE === "true";
     const useMacAi = process.env.RIBO_MAC_AI === "true";
-    const boardHost = unoqHost(
+    const requestedBoardHost = unoqHost(
       request.headers.get("X-UNOQ-IP") || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3"
     );
+    const boardHost = await resolveUnoQHost(requestedBoardHost);
     if (!onDevice && !useMacAi && ["localhost", "127.0.0.1"].includes(boardHost)) {
       return jsonResponseWithCors(request, { error: "Choose the UNO Q network address" }, { status: 400 });
     }

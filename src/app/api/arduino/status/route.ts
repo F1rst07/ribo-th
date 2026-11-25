@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { corsPreflightResponse, jsonWithCors } from "@/lib/cors";
-import { unoqApiUrl, unoqHost } from "@/lib/unoqEndpoint";
+import { resolveUnoQHost, unoqApiUrl, unoqHost } from "@/lib/unoqEndpoint";
 import { isUnoQHealthPayload } from "@/lib/unoqBoardProbe";
 
 export async function OPTIONS(request: NextRequest) {
@@ -27,13 +27,14 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const host = unoqHost(requestedIp);
+  const targetHost = await resolveUnoQHost(requestedIp);
+  const host = unoqHost(targetHost);
   const onDevice = process.env.RIBO_DEVICE_MODE === "true";
   const targetUrls = onDevice
     ? [`http://${host}:8000/api/health`]
     : [
         `http://${host}:3000/api/arduino/status?ip=${encodeURIComponent(requestedIp)}`,
-        unoqApiUrl(requestedIp, "status", "/api/health"),
+        unoqApiUrl(targetHost, "status", "/api/health"),
         `http://${host}:8000/api/health`,
       ];
 

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { corsPreflightResponse, jsonWithCors, withCors } from "@/lib/cors";
-import { unoqApiUrl } from "@/lib/unoqEndpoint";
+import { resolveUnoQHost, unoqApiUrl } from "@/lib/unoqEndpoint";
 
 export async function OPTIONS(request: NextRequest) {
   return corsPreflightResponse(request);
@@ -10,8 +10,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const requestedIp = (searchParams.get("ip") || process.env.NEXT_PUBLIC_UNOQ_IP || "172.20.10.3").trim();
 
+  const targetHost = await resolveUnoQHost(requestedIp);
   const targetUrls = [
-    unoqApiUrl(requestedIp, "stream", "/camera/stream"),
+    unoqApiUrl(targetHost, "stream", "/camera/stream"),
   ];
 
   for (const url of targetUrls) {
@@ -26,9 +27,11 @@ export async function GET(request: NextRequest) {
       clearTimeout(timeout);
 
       if (resp.ok && resp.body && resp.headers.get("Content-Type")?.includes("multipart/x-mixed-replace")) {
+        const { readable, writable } = new TransformStream();
+        resp.body.pipeTo(writable).catch(() => {});
         return withCors(
           request,
-          new Response(resp.body, {
+          new Response(readable, {
             headers: {
               "Content-Type":
                 resp.headers.get("Content-Type") ||

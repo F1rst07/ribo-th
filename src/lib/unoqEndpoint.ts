@@ -1,3 +1,45 @@
+import dns from "dns";
+
+type CachedHost = { host: string; ip: string; time: number };
+const globalForUnoq = globalThis as typeof globalThis & {
+  __riboUnoqIpv4Cache?: CachedHost;
+  __riboUnoqIpv4Inflight?: Promise<string>;
+};
+
+export async function resolveUnoQHost(requested: string): Promise<string> {
+  const host = unoqHost(requested);
+  if (!host.endsWith(".local")) return host;
+  if (host === "ribo-th.local") return "192.168.0.5";
+  const cached = globalForUnoq.__riboUnoqIpv4Cache;
+  if (cached && cached.host === host && Date.now() - cached.time < 300_000) {
+    return cached.ip;
+  }
+  if (globalForUnoq.__riboUnoqIpv4Inflight) {
+    return globalForUnoq.__riboUnoqIpv4Inflight;
+  }
+  const lookupPromise = (async () => {
+    try {
+      const res = await dns.promises.lookup(host, { family: 4 });
+      if (res?.address) {
+        globalForUnoq.__riboUnoqIpv4Cache = { host, ip: res.address, time: Date.now() };
+        return res.address;
+      }
+    } catch {}
+    if (globalForUnoq.__riboUnoqIpv4Cache?.host === host) {
+      return globalForUnoq.__riboUnoqIpv4Cache.ip;
+    }
+    return host;
+  })();
+  globalForUnoq.__riboUnoqIpv4Inflight = lookupPromise;
+  try {
+    return await lookupPromise;
+  } finally {
+    if (globalForUnoq.__riboUnoqIpv4Inflight === lookupPromise) {
+      globalForUnoq.__riboUnoqIpv4Inflight = undefined;
+    }
+  }
+}
+
 /** On the device, all hardware requests stay on its loopback service. */
 export function unoqHost(requested: string): string {
   if (process.env.RIBO_DEVICE_MODE === "true") return "127.0.0.1";

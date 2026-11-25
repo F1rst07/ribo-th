@@ -14,6 +14,11 @@ import {
 } from "@/lib/clientBoardApi";
 
 const STALE_BOARD_IPS = new Set(["172.20.10.3", "127.0.0.1", "localhost"]);
+export const DEMO_BOARD_HOST = "uno-q-demo.invalid";
+
+export function isDemoBoardHost(host: string): boolean {
+  return host.trim().toLowerCase() === DEMO_BOARD_HOST;
+}
 
 export function isStaleUnoQIp(ip: string): boolean {
   return STALE_BOARD_IPS.has(ip.trim());
@@ -163,6 +168,12 @@ export async function connectArduinoUnoQ(
       : getUnoQIp();
   activeIp = targetIp;
 
+  if (isDemoBoardHost(targetIp)) {
+    isWifiConnected = true;
+    onDataReceived?.(`INFO : เชื่อมต่อโหมดสาธิต (Demo Mode : ${targetIp})`);
+    return { success: true, portName: `Demo : ${targetIp}` };
+  }
+
   try {
     let data: { connected?: boolean } = {};
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -188,7 +199,7 @@ export async function connectArduinoUnoQ(
         try {
           const pollRes = await fetch(boardArduinoApi(activeIp, "status", { ip: activeIp }), {
             cache: "no-store",
-            signal: AbortSignal.timeout(1500),
+            signal: AbortSignal.timeout(3500),
             mode: "cors",
           });
           const pollData = await pollRes.json();
@@ -383,6 +394,10 @@ export async function disconnectArduinoUnoQ(): Promise<void> {
  * Send command string to Arduino UNO Q over Wi-Fi (Primary) or Serial fallback
  */
 export async function sendCommandToArduino(command: string): Promise<boolean> {
+  if (isDemoBoardHost(activeIp)) {
+    return true;
+  }
+
   // 1. ส่งผ่าน Wi-Fi API proxy (รองรับคำสั่งเดินเรือ, แขนกล, กลไกน้ำมัน และหยุดฉุกเฉิน)
   try {
     const resp = await fetch("/api/arduino/command", {
@@ -438,10 +453,13 @@ export async function checkUnoQCameraStatus(targetIp?: string): Promise<{
   error?: string;
 }> {
   const ip = targetIp || getUnoQIp();
+  if (isDemoBoardHost(ip)) {
+    return { active: false, deviceName: "Logitech C270 (Demo)" };
+  }
   try {
     const resp = await fetch(boardArduinoApi(ip, "camera", { ip }), {
       cache: "no-store",
-      signal: AbortSignal.timeout(1500),
+      signal: AbortSignal.timeout(3500),
       mode: "cors",
     });
     if (resp.ok) {
@@ -470,7 +488,7 @@ export async function connectCameraStream(preferLocalUsb = false): Promise<{
   deviceName?: string;
   error?: string;
 }> {
-  if (!preferLocalUsb) {
+  if (!preferLocalUsb && !isDemoBoardHost(activeIp)) {
     // In vessel mode, the camera attached to UNO Q remains the primary source.
     const unoqCam = await checkUnoQCameraStatus(activeIp);
     if (unoqCam.active) {
